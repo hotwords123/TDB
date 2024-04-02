@@ -63,6 +63,7 @@ public:
 protected:
   RC allocate_frame(PageNum page_num, Frame **buf);
   RC flush_page_internal(Frame &frame);
+  RC evict_page_internal(PageNum page_num, Frame *buf);
   /**
    * 加载指定页面的数据到内存的Frame中
    */

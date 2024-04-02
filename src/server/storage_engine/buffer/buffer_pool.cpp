@@ -218,6 +218,20 @@ RC FileBufferPool::flush_page_internal(Frame &frame)
 //  3. 写入数据到文件的目标位置
 //  4. 清除frame的脏标记
 //  5. 记录和返回成功
+  const Page &page = frame.page();
+
+  int64_t page_offset = (int64_t)page.page_num * BP_PAGE_SIZE;
+  if (lseek(file_desc_, page_offset, SEEK_SET) == -1) {
+    LOG_ERROR("Failed to flush page %s:%d: lseek failed: %s", file_name_.c_str(), page.page_num, strerror(errno));
+    return RC::IOERR_SEEK;
+  }
+
+  if (int ret = writen(file_desc_, &page, BP_PAGE_SIZE); ret != 0) {
+    LOG_ERROR("Failed to flush page %s:%d: write failed: %s", file_name_.c_str(), page.page_num, strerror(ret));
+    return RC::IOERR_WRITE;
+  }
+
+  frame.clear_dirty();
   return RC::SUCCESS;
 }
 
@@ -226,14 +240,37 @@ RC FileBufferPool::flush_page_internal(Frame &frame)
  */
 RC FileBufferPool::evict_page(PageNum page_num, Frame *buf)
 {
-  return RC::SUCCESS;
+  std::lock_guard lock_guard(lock_);
+  return evict_page_internal(page_num, buf);
 }
+
+RC FileBufferPool::evict_page_internal(PageNum page_num, Frame *buf)
+{
+  if (buf->dirty()) {
+    if (RC rc = flush_page_internal(*buf); rc != RC::SUCCESS) {
+      return rc;
+    }
+  }
+  return frame_manager_.free(buf);
+}
+
 /**
  * TODO [Lab1] 需要同学们实现该文件所有页面的驱逐
  */
 RC FileBufferPool::evict_all_pages()
 {
-  return RC::SUCCESS;
+  std::lock_guard lock_guard(lock_);
+  RC rc = RC::SUCCESS;
+
+  for (auto frame : frame_manager_.find_list(file_desc_)) {
+    PageNum page_num = frame->page_num();
+    if (RC _rc = evict_page_internal(page_num, frame); _rc != RC::SUCCESS) {
+      LOG_ERROR("Failed to evict page %s:%d: rc=%s", file_name_.c_str(), page_num, strrc(_rc));
+      rc = _rc;
+    }
+  }
+
+  return rc;
 }
 
 /**
@@ -467,7 +504,20 @@ RC BufferPoolManager::close_file(const char *_file_name)
  */
 RC BufferPoolManager::flush_page(Frame &frame)
 {
-  return RC::SUCCESS;
+  FileBufferPool *bp = nullptr;
+
+  lock_.lock();
+
+  auto fd_iter = fd_buffer_pools_.find(frame.file_desc());
+  if (fd_iter == fd_buffer_pools_.end()) {
+    LOG_ERROR("Failed to flush page %d:%d: fd not found", frame.file_desc(), frame.page_num());
+    return RC::INTERNAL;
+  }
+
+  bp = fd_iter->second;
+  lock_.unlock();
+
+  return bp->flush_page(frame);
 }
 
 static BufferPoolManager *default_bpm = nullptr;

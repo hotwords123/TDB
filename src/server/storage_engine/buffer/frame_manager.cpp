@@ -48,12 +48,48 @@ Frame *FrameManager::get(int file_desc, PageNum page_num)
   return get_internal(frame_id);
 }
 
+RC FrameManager::free(Frame *frame) {
+  if (int pin_count = frame->unpin(); pin_count != 0) {
+    LOG_WARN("trying to free a frame with pin_count=%d. frame=%s", pin_count, to_string(*frame).c_str());
+    return RC::INTERNAL;
+  }
+
+  std::lock_guard lock_guard(lock_);
+  free_internal(frame);
+  return RC::SUCCESS;
+}
+
+void FrameManager::free_internal(Frame *frame)
+{
+  frames_.remove(frame->frame_id());
+  allocator_.free(frame);
+}
+
 /**
  * TODO [Lab1] 需要同学们实现页帧驱逐
  */
 int FrameManager::evict_frames(int count, std::function<RC(Frame *frame)> evict_action)
 {
-  return 0;
+  std::lock_guard lock_guard(lock_);
+  std::list<Frame *> evicted_frames;
+
+  frames_.foreach_reverse([&](const FrameId &frame_id, Frame *frame) -> bool {
+    // printf("evict_frames got frame=%s\n", to_string(*frame).c_str());
+    if (frame->pin_count() == 0) {
+      if (RC rc = evict_action(frame); rc == RC::SUCCESS) {
+        evicted_frames.push_back(frame);
+      } else {
+        LOG_WARN("Evict action failed (rc=%s): frame=%s", strrc(rc), to_string(*frame).c_str());
+      }
+    }
+    return evicted_frames.size() < (size_t)count;
+  });
+
+  for (auto frame : evicted_frames) {
+    free_internal(frame);
+  }
+
+  return evicted_frames.size();
 }
 
 Frame *FrameManager::get_internal(const FrameId &frame_id)
