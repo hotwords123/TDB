@@ -347,12 +347,28 @@ RC Table::insert_record(Record &record)
     return rc;
   }
 
-  for (Index *index : indexes_) {
+  for (auto it = indexes_.begin(); it != indexes_.end(); ++it) {
+    Index *index = *it;
     rc = index->insert_entry(record.data(), &record.rid());
     if (rc != RC::SUCCESS) {
       LOG_ERROR("Failed to insert record into index. table=%s, index=%s, rc=%s",
                 name(), index->index_meta().name(), strrc(rc));
-      // FIXME: 这里应该回滚之前的插入操作
+
+      // 回滚之前的插入操作
+      for (; it != indexes_.begin(); --it) {
+        index = *it;
+        rc = index->delete_entry(record.data(), &record.rid());
+        if (rc != RC::SUCCESS) {
+          LOG_ERROR("Failed to delete record from index. table=%s, index=%s, rc=%s",
+                    name(), index->index_meta().name(), strrc(rc));
+        }
+      }
+
+      rc = record_handler_->delete_record(&record.rid());
+      if (rc != RC::SUCCESS) {
+        LOG_ERROR("Delete record failed. table name=%s, rc=%s", table_meta_.name(), strrc(rc));
+      }
+
       return rc;
     }
   }
@@ -366,7 +382,11 @@ RC Table::delete_record(const Record &record)
 
   for (Index *index : indexes_) {
     rc = index->delete_entry(record.data(), &record.rid());
-    if (rc != RC::SUCCESS) {
+    if (rc == RC::RECORD_NOT_EXIST) {
+      LOG_WARN("Record not exist in index. table=%s, index=%s, rid=%s",
+               name(), index->index_meta().name(), record.rid().to_string().c_str());
+      rc = RC::SUCCESS;
+    } else if (rc != RC::SUCCESS) {
       LOG_ERROR("Failed to delete record from index. table=%s, index=%s, rc=%s",
                 name(), index->index_meta().name(), strrc(rc));
       // FIXME: 这里应该回滚之前的删除操作
