@@ -26,7 +26,7 @@ Table::~Table()
   LOG_INFO("Table has been closed: %s", name());
 }
 
-RC Table::create(int32_t table_id, 
+RC Table::create(int32_t table_id,
     const char *path,
     const char *name,
     const char *base_dir,
@@ -347,7 +347,15 @@ RC Table::insert_record(Record &record)
     return rc;
   }
 
-  // TODO [Lab2] 增加索引的处理逻辑
+  for (Index *index : indexes_) {
+    rc = index->insert_entry(record.data(), &record.rid());
+    if (rc != RC::SUCCESS) {
+      LOG_ERROR("Failed to insert record into index. table=%s, index=%s, rc=%s",
+                name(), index->index_meta().name(), strrc(rc));
+      // FIXME: 这里应该回滚之前的插入操作
+      return rc;
+    }
+  }
 
   return rc;
 }
@@ -356,9 +364,22 @@ RC Table::delete_record(const Record &record)
 {
   RC rc = RC::SUCCESS;
 
-  // TODO [Lab2] 增加索引的处理逻辑
+  for (Index *index : indexes_) {
+    rc = index->delete_entry(record.data(), &record.rid());
+    if (rc != RC::SUCCESS) {
+      LOG_ERROR("Failed to delete record from index. table=%s, index=%s, rc=%s",
+                name(), index->index_meta().name(), strrc(rc));
+      // FIXME: 这里应该回滚之前的删除操作
+      return rc;
+    }
+  }
 
   rc = record_handler_->delete_record(&record.rid());
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("Delete record failed. table name=%s, rc=%s", table_meta_.name(), strrc(rc));
+    return rc;
+  }
+
   return rc;
 }
 

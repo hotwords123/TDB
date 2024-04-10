@@ -10,6 +10,11 @@ PredicatePhysicalOperator::PredicatePhysicalOperator(std::unique_ptr<Expression>
   ASSERT(expression_->value_type() == BOOLEANS, "predicate's expression should be BOOLEAN type");
 }
 
+std::string PredicatePhysicalOperator::param() const
+{
+  return expression_->to_string();
+}
+
 RC PredicatePhysicalOperator::open(Trx *trx)
 {
   RC rc = RC::SUCCESS;

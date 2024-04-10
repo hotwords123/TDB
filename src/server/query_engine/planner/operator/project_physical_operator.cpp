@@ -3,6 +3,19 @@
 #include "include/storage_engine/recorder/record.h"
 #include "include/storage_engine/recorder/table.h"
 
+std::string ProjectPhysicalOperator::param() const
+{
+  std::string res;
+  auto species = tuple_.get_species();
+  for (int i = 0; i < species.size(); i++) {
+    if (i > 0) {
+      res += ", ";
+    }
+    res += species[i]->expression()->to_string();
+  }
+  return res;
+}
+
 RC ProjectPhysicalOperator::open(Trx *trx)
 {
   if (children_.empty()) {

@@ -26,6 +26,8 @@ public:
 
   virtual ~ProjectPhysicalOperator() = default;
 
+  std::string param() const override;
+
   void add_projector(const Expression *expr);
 
   PhysicalOperatorType type() const override {

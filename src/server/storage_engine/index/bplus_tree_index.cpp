@@ -83,6 +83,14 @@ RC BplusTreeIndex::close()
   return RC::SUCCESS;
 }
 
+std::vector<const char *> BplusTreeIndex::build_multi_keys(const char *record) const {
+  std::vector<const char *> keys(multi_field_metas_.size());
+  for (int i = 0; i < multi_field_metas_.size(); i++) {
+    keys[i] = record + multi_field_metas_[i].offset();
+  }
+  return keys;
+}
+
 /**
  * 由于支持多字段索引，需要从record中取出multi_field_metas_中的字段值，作为key。
  * 需要调用BplusTreeHandler的insert_entry完成插入操作。
@@ -90,8 +98,23 @@ RC BplusTreeIndex::close()
  */
 RC BplusTreeIndex::insert_entry(const char *record, const RID *rid)
 {
-  // TODO [Lab2] 增加索引项的处理逻辑
-  return RC::SUCCESS;
+  auto multi_keys = build_multi_keys(record);
+
+  if (index_meta_.is_unique()) {
+    // 对于唯一索引，判断是否存在重复的字段值
+    std::list<RID> rids;
+    RC rc = index_handler_.get_entry(multi_keys.data(), rids, multi_keys.size());
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("Failed to validate unique index. rc=%s", strrc(rc));
+      return rc;
+    }
+    if (!rids.empty()) {
+      LOG_INFO("Refuse to insert duplicate key.");
+      return RC::RECORD_DUPLICATE_KEY;
+    }
+  }
+
+  return index_handler_.insert_entry(multi_keys.data(), rid, multi_keys.size());
 }
 
 /**
@@ -100,8 +123,8 @@ RC BplusTreeIndex::insert_entry(const char *record, const RID *rid)
  */
 RC BplusTreeIndex::delete_entry(const char *record, const RID *rid)
 {
-  // TODO [Lab2] 增加索引项的处理逻辑
-  return RC::SUCCESS;
+  auto multi_keys = build_multi_keys(record);
+  return index_handler_.delete_entry(multi_keys.data(), rid, multi_keys.size());
 }
 
 IndexScanner *BplusTreeIndex::create_scanner(

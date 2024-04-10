@@ -18,6 +18,8 @@ public:
     return PhysicalOperatorType::PREDICATE;
   }
 
+  std::string param() const override;
+
   RC open(Trx *trx) override;
   RC next() override;
   RC close() override;

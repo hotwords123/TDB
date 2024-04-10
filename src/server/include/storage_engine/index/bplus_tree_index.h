@@ -39,6 +39,11 @@ class BplusTreeIndex : public Index
   bool inited_ = false;
   BplusTreeHandler index_handler_;
   Table * table_;
+
+  /**
+   * 构造多字段索引的字段信息
+   */
+  std::vector<const char *> build_multi_keys(const char *record) const;
 };
 
 /**
