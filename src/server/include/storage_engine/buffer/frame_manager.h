@@ -44,12 +44,6 @@ public:
   */
  Frame *get(int file_desc, PageNum page_num);
 
-  /**
-   * @brief 释放一个页面，要求pin count=0
-   * @param frame 页帧指针
-   */
- RC free(Frame *frame);
-
  /**
   * 当分配的frame已满时，就尝试驱逐一些pin count=0的frame
   * @param count 想要驱逐多少个frame
@@ -67,9 +61,17 @@ public:
 
  size_t frame_num() const { return frames_.count(); }
 
+  /**
+   * @brief 释放一个页面，要求pin count=0
+   * @param file_desc 文件描述符
+   * @param page_num 页面编号
+   * @param frame 页帧指针
+   */
+ RC free(int file_desc, PageNum page_num, Frame *frame);
+
 private:
  Frame *get_internal(const FrameId &frame_id);
- void free_internal(Frame *frame);
+ RC free_internal(const FrameId &frame_id, Frame *frame);
 
 private:
  class FrameIdHasher {
