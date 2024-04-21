@@ -4,7 +4,7 @@
 
 /**
  * @brief 属性的类型
- * 
+ *
  */
 enum AttrType
 {
@@ -39,7 +39,6 @@ public:
   explicit Value(float val);
   explicit Value(bool val);
   explicit Value(const char *s, int len = 0);
-  explicit Value(const char *s, int len, bool force);
   explicit Value(AttrType attrType);
 
   Value(const Value &other) = default;
