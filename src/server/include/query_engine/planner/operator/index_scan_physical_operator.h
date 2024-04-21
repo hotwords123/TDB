@@ -23,11 +23,27 @@ public:
                                              right_inclusive_(right_inclusive)
  {
     if (left_value != nullptr) {
-      left_value_ = *left_value;
+      left_key_buf_.assign(left_value->data(), left_value->length());
       left_null_ = false;
     }
     if (right_value != nullptr) {
-      right_value_ = *right_value;
+      right_key_buf_.assign(right_value->data(), right_value->length());
+      right_null_ = false;
+    }
+  }
+
+  IndexScanPhysicalOperator(Table *table, Index *index, bool readonly,
+                            const char *left_key, int left_len, bool left_inclusive,
+                            const char *right_key, int right_len, bool right_inclusive) :
+                              table_(table), index_(index), readonly_(readonly),
+                              left_inclusive_(left_inclusive), right_inclusive_(right_inclusive)
+  {
+    if (left_key != nullptr) {
+      left_key_buf_.assign(left_key, left_len);
+      left_null_ = false;
+    }
+    if (right_key != nullptr) {
+      right_key_buf_.assign(right_key, right_len);
       right_null_ = false;
     }
   }
@@ -63,8 +79,8 @@ public:
   Record current_record_;
   RowTuple tuple_;
 
-  Value left_value_;
-  Value right_value_;
+  std::string left_key_buf_;
+  std::string right_key_buf_;
   bool left_inclusive_ = false;
   bool right_inclusive_ = false;
   bool left_null_ = true;
