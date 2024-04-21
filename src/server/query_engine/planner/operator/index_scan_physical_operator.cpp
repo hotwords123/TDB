@@ -53,7 +53,7 @@ RC IndexScanPhysicalOperator::next()
 
   while (!filter_result) {
     // 使用 IndexScanner 获取下一个 RID
-    rc = index_scanner_->next_entry(&rid, false);
+    rc = index_scanner_->next_entry(&rid, isdelete_);
     if (rc != RC::SUCCESS) {
       return rc;
     }
