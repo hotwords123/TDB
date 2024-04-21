@@ -355,17 +355,15 @@ RC Table::insert_record(Record &record)
                 name(), index->index_meta().name(), strrc(rc));
 
       // 回滚之前的插入操作
-      for (; it != indexes_.begin(); --it) {
-        index = *it;
-        rc = index->delete_entry(record.data(), &record.rid());
-        if (rc != RC::SUCCESS) {
+      while (it != indexes_.begin()) {
+        index = *--it;
+        if (RC rc = index->delete_entry(record.data(), &record.rid()); rc != RC::SUCCESS) {
           LOG_ERROR("Failed to delete record from index. table=%s, index=%s, rc=%s",
                     name(), index->index_meta().name(), strrc(rc));
         }
       }
 
-      rc = record_handler_->delete_record(&record.rid());
-      if (rc != RC::SUCCESS) {
+      if (RC rc = record_handler_->delete_record(&record.rid()); rc != RC::SUCCESS) {
         LOG_ERROR("Delete record failed. table name=%s, rc=%s", table_meta_.name(), strrc(rc));
       }
 
