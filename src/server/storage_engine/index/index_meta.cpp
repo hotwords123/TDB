@@ -86,8 +86,11 @@ const char *IndexMeta::multi_fields() const
 {
   static std::string multi_field_str;
   multi_field_str.clear();
-  for (auto str: multi_fields_) {
-    multi_field_str += str;
+  for (auto it = multi_fields_.begin(); it != multi_fields_.end(); it++) {
+    if (it != multi_fields_.begin()) {
+      multi_field_str += ' ';
+    }
+    multi_field_str += *it;
   }
   return multi_field_str.c_str();
 }
