@@ -24,8 +24,11 @@
 #include "include/query_engine/planner/node/join_logical_node.h"
 #include "include/query_engine/planner/node/group_by_logical_node.h"
 #include "include/query_engine/planner/operator/group_by_physical_operator.h"
+#include "include/query_engine/planner/operator/empty_physical_operator.h"
 #include "common/log/log.h"
+#include "common/lang/range.h"
 #include "include/storage_engine/recorder/table.h"
+#include "include/storage_engine/index/index.h"
 #include "include/query_engine/structor/expression/field_expression.h"
 #include "include/query_engine/structor/expression/value_expression.h"
 #include "include/query_engine/structor/expression/comparison_expression.h"
@@ -102,60 +105,118 @@ RC PhysicalOperatorGenerator::create_plan(
   // 2. 对应上面example里的process阶段， 找到等值表达式中对应的FieldExpression和ValueExpression(左值和右值)
   // 通过FieldExpression找到对应的Index, 通过ValueExpression找到对应的Value
   // ps: 由于我们只支持单键索引，所以只需要找到一个等值表达式即可
-  Index *index = nullptr;
-  Value value;
+  Index *scan_index = nullptr;
 
-  for (auto &predicate : predicates) {
-    if (predicate->type() == ExprType::COMPARISON) {
+  auto compare_value = [](const Value &lhs, const Value &rhs) {
+    return lhs.compare(rhs);
+  };
+  using ValueBound = common::RangeBound<Value, decltype(compare_value)>;
+  ValueBound lbound, rbound;
+
+  for (auto index : table->indexes()) {
+    lbound.clear();
+    rbound.clear();
+    // 第一个字段的名字，多重索引由于按字典序排列也能使用
+    std::string first_field_name(index->index_meta().field(0));
+
+    for (auto &predicate : predicates) {
+      if (predicate->type() != ExprType::COMPARISON) {
+        continue;
+      }
+
       auto compare_expr = static_cast<ComparisonExpr *>(predicate.get());
+      int comp_op;
+      switch (compare_expr->comp()) {
+        case CompOp::EQUAL_TO: comp_op = 0; break;
+        case CompOp::GREAT_EQUAL: comp_op = 1; break;
+        case CompOp::GREAT_THAN: comp_op = 2; break;
+        case CompOp::LESS_EQUAL: comp_op = -1; break;
+        case CompOp::LESS_THAN: comp_op = -2; break;
+        default: continue;
+      }
 
-      if (compare_expr->comp() == CompOp::EQUAL_TO) {
-        auto left = compare_expr->left().get();
-        auto right = compare_expr->right().get();
-        FieldExpr *field_expr = nullptr;
-        Expression *other_expr = nullptr;
-        // 找到 field = const 或 const = field 的模式
-        if (left->type() == ExprType::FIELD) {
-          field_expr = static_cast<FieldExpr *>(left);
-          other_expr = right;
-        } else if (right->type() == ExprType::FIELD) {
-          field_expr = static_cast<FieldExpr *>(right);
-          other_expr = left;
-        } else {
-          continue;
+      auto left = compare_expr->left().get();
+      auto right = compare_expr->right().get();
+      FieldExpr *field_expr = nullptr;
+      Expression *other_expr = nullptr;
+      // 找到 field = const 或 const = field 的模式
+      if (left->type() == ExprType::FIELD) {
+        field_expr = static_cast<FieldExpr *>(left);
+        other_expr = right;
+      } else if (right->type() == ExprType::FIELD) {
+        field_expr = static_cast<FieldExpr *>(right);
+        other_expr = left;
+        comp_op = -comp_op;
+      } else {
+        continue;
+      }
+      // 检查 field 是否相同
+      if (field_expr->field_name() != first_field_name) {
+        continue;
+      }
+      // 尝试直接获得表达式的常量值
+      Value value;
+      if (other_expr->try_get_value(value) != RC::SUCCESS) {
+        continue;
+      }
+      LOG_INFO("found predicate match for index %s: comp_op=%d, value=%s",
+        index->index_meta().name(), comp_op, value.to_string().c_str());
+
+      // 更新边界
+      if (comp_op >= 0) {
+        ValueBound bound(comp_op != 2, value);
+        if (bound.compare(lbound, ValueBound::LEFT) < 0) {
+          lbound = bound;
         }
-        // 尝试直接获得表达式的常量值
-        if (other_expr->try_get_value(value) != RC::SUCCESS) {
-          continue;
-        }
-        // 查找对应的索引项
-        index = table->find_index_by_field(field_expr->field_name());
-        if (index != nullptr) {
-          LOG_INFO("found index for %s.%s", table->name(), field_expr->field_name());
-          break;
+      }
+      if (comp_op <= 0) {
+        ValueBound bound(comp_op != -2, value);
+        if (bound.compare(rbound, ValueBound::RIGHT) < 0) {
+          rbound = bound;
         }
       }
     }
+
+    if (!lbound.null || !rbound.null) {
+      scan_index = index;
+      // 检查范围是否合法（左边界小于等于右边界）
+      if (!lbound.null && !rbound.null) {
+        int ret = compare_value(lbound.value, rbound.value);
+        if (ret > 0 || (ret == 0 && !(lbound.inclusive && rbound.inclusive))) {
+          LOG_WARN("invalid range: lbound=%s, rbound=%s. using empty operator",
+            lbound.to_string().c_str(), rbound.to_string().c_str());
+          // 无效范围，视为空操作
+          oper = make_unique<EmptyPhysicalOperator>();
+          return RC::SUCCESS;
+        }
+      }
+      break;
+    }
   }
 
-  if(index == nullptr){
+  if (scan_index == nullptr) {
     auto table_scan_oper = new TableScanPhysicalOperator(table, table_get_oper.table_alias(), table_get_oper.readonly());
     table_scan_oper->isdelete_ = is_delete;
     table_scan_oper->set_predicates(std::move(predicates));
     oper = unique_ptr<PhysicalOperator>(table_scan_oper);
     LOG_TRACE("use table scan");
-  }else{
+  } else {
     // TODO [Lab2] 生成IndexScanOperator, 并放置在算子树上，下面是一个实现参考，具体实现可以根据需要进行修改
     // IndexScanner 在设计时，考虑了范围查找索引的情况，但此处我们只需要考虑单个键的情况
     // const Value &value = value_expression->get_value();
     // IndexScanPhysicalOperator *operator =
     //              new IndexScanPhysicalOperator(table, index, readonly, &value, true, &value, true);
     // oper = unique_ptr<PhysicalOperator>(operator);
-    auto *index_scan_oper = new IndexScanPhysicalOperator(table, index, table_get_oper.readonly(), &value, true, &value, true);
+    auto *index_scan_oper = new IndexScanPhysicalOperator(
+      table, scan_index, table_get_oper.readonly(),
+      lbound.null ? nullptr : &lbound.value, lbound.inclusive,
+      rbound.null ? nullptr : &rbound.value, rbound.inclusive
+    );
     index_scan_oper->isdelete_ = is_delete;
     index_scan_oper->set_predicates(std::move(predicates));
     oper = unique_ptr<PhysicalOperator>(index_scan_oper);
-    LOG_TRACE("use index scan");
+    LOG_INFO("use index scan: index=%s, lbound=%s, rbound=%s",
+      scan_index->index_meta().name(), lbound.to_string().c_str(), rbound.to_string().c_str());
   }
 
   return RC::SUCCESS;

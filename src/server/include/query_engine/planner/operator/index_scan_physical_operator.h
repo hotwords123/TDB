@@ -21,7 +21,7 @@ public:
                                              readonly_(readonly),
                                              left_inclusive_(left_inclusive),
                                              right_inclusive_(right_inclusive)
- {
+  {
     if (left_value != nullptr) {
       left_key_buf_.assign(left_value->data(), left_value->length());
       left_null_ = false;

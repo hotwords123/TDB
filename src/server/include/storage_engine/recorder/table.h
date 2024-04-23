@@ -15,7 +15,7 @@ class Index;
 /**
  * @brief 表
  */
-class Table 
+class Table
 {
 public:
   Table() = default;
@@ -29,7 +29,7 @@ public:
    * @param attribute_count 字段个数
    * @param attributes 字段
    */
-  RC create(int32_t table_id, 
+  RC create(int32_t table_id,
       const char *path,
       const char *name,
       const char *base_dir,
@@ -117,6 +117,7 @@ private:
   RC change_record_value(char *&record, int idx, const Value &value) const;
 
 public:
+  const std::vector<Index *> &indexes() const { return indexes_; }
   Index *find_index(const char *index_name) const;
   Index *find_index_by_field(const char *field_name) const;
 

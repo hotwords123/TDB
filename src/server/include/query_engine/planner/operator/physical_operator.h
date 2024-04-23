@@ -27,6 +27,8 @@ enum class PhysicalOperatorType
   GROUP_BY,
   ORDER_BY,
   NESTED_LOOP_JOIN,
+
+  EMPTY,
 };
 
 class PhysicalOperator
