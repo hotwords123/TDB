@@ -41,6 +41,7 @@ public:
 
   RC open(Trx *) override
   {
+    started_ = false;
     return RC::SUCCESS;
   }
 
