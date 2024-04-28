@@ -24,6 +24,7 @@
 #include "include/query_engine/planner/node/explain_logical_node.h"
 #include "include/query_engine/planner/operator/explain_physical_operator.h"
 #include "include/query_engine/planner/node/join_logical_node.h"
+#include "include/query_engine/planner/operator/join_physical_operator.h"
 #include "include/query_engine/planner/operator/group_by_physical_operator.h"
 #include "include/query_engine/planner/operator/empty_physical_operator.h"
 #include "common/log/log.h"
@@ -75,7 +76,9 @@ RC PhysicalOperatorGenerator::create(LogicalNode &logical_operator, unique_ptr<P
       return create_plan(static_cast<ExplainLogicalNode &>(logical_operator), oper, is_delete);
     }
     // TODO [Lab3] 实现JoinNode到JoinOperator的转换
-    case LogicalNodeType::JOIN:
+    case LogicalNodeType::JOIN: {
+      return create_plan(static_cast<JoinLogicalNode &>(logical_operator), oper);
+    }
     case LogicalNodeType::GROUP_BY: {
       return RC::UNIMPLENMENT;
     }
@@ -425,5 +428,26 @@ RC PhysicalOperatorGenerator::create_plan(
 RC PhysicalOperatorGenerator::create_plan(
     JoinLogicalNode &join_oper, unique_ptr<PhysicalOperator> &oper)
 {
-  return RC::UNIMPLENMENT;
+  vector<unique_ptr<LogicalNode>> &child_opers = join_oper.children();
+  if (child_opers.size() != 2) {
+    LOG_WARN("join operator should have 2 children. size=%d", child_opers.size());
+    return RC::INVALID_ARGUMENT;
+  }
+
+  auto join_physical_oper = make_unique<JoinPhysicalOperator>();
+  join_physical_oper->set_condition(std::move(join_oper.condition()));
+
+  for (auto &child_oper : child_opers) {
+    unique_ptr<PhysicalOperator> child_physical_oper;
+    RC rc = create(*child_oper, child_physical_oper);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to create child physical operator. rc=%s", strrc(rc));
+      return rc;
+    }
+
+    join_physical_oper->add_child(std::move(child_physical_oper));
+  }
+
+  oper = std::move(join_physical_oper);
+  return RC::SUCCESS;
 }
