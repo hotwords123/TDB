@@ -29,4 +29,5 @@ private:
   std::unique_ptr<Expression> condition_;
   Trx *trx_ = nullptr;
   JoinedTuple joined_tuple_;  //! 当前关联的左右两个tuple
+  bool finished_ = true;
 };

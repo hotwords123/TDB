@@ -15,6 +15,9 @@ public:
 
   const TupleType tuple_type() const override { return JoinedTuple_Type; }
 
+  Tuple *left() const { return left_; }
+  Tuple *right() const { return right_; }
+
   void set_left(Tuple *left)
   {
     left_ = left;
