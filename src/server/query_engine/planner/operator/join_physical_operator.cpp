@@ -12,6 +12,16 @@
 
 JoinPhysicalOperator::JoinPhysicalOperator() = default;
 
+std::string JoinPhysicalOperator::param() const
+{
+  std::string res;
+  for (size_t i = 0; i < conditions_.size(); i++) {
+    res += i == 0 ? "ON " : " AND ";
+    res += conditions_[i]->to_string();
+  }
+  return res;
+}
+
 // 执行next()前的准备工作, trx是之后事务中会使用到的，这里不用考虑
 RC JoinPhysicalOperator::open(Trx *trx)
 {

@@ -15,6 +15,8 @@ public:
     return PhysicalOperatorType::JOIN;
   }
 
+  std::string param() const override;
+
   RC open(Trx *trx) override;
   RC next() override;
   RC close() override;
