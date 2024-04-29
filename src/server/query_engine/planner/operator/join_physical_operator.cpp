@@ -16,13 +16,12 @@ JoinPhysicalOperator::JoinPhysicalOperator() = default;
 RC JoinPhysicalOperator::open(Trx *trx)
 {
   trx_ = trx;
-  children_[0]->open(trx);
-  children_[1]->open(trx);
 
   joined_tuple_.set_left(nullptr);
   joined_tuple_.set_right(nullptr);
-  finished_ = false;
+  joined_father_tuple_.set_left(const_cast<Tuple *>(father_tuple_));
 
+  state_ = OUTER_LOOP_START;
   return RC::SUCCESS;
 }
 
@@ -30,80 +29,129 @@ RC JoinPhysicalOperator::open(Trx *trx)
 // 如果没有更多数据，返回RC::RECORD_EOF
 RC JoinPhysicalOperator::next()
 {
-  if (finished_) {
-    return RC::RECORD_EOF;
-  }
-
   PhysicalOperator *left_oper = children_[0].get();
   PhysicalOperator *right_oper = children_[1].get();
 
   RC rc = RC::SUCCESS;
 
   // 实现 Nested Loop Join
-  while (true) {
-    // 内层循环步进，获取右孩子的下一个 tuple
-    rc = right_oper->next();
-    if (rc == RC::RECORD_EOF) {
-      if (joined_tuple_.left() == nullptr) {
-        // 左 tuple 为空说明这是第一次循环，但是右孩子已经没有数据了，直接返回
+  while (state_ != FINISHED) {
+    switch (state_) {
+      case OUTER_LOOP_START: {
+        // 进入外层循环，初始化左算子
+        rc = left_oper->open(trx_);
+        if (rc != RC::SUCCESS) {
+          LOG_ERROR("failed to open left operator: rc=%s", strrc(rc));
+          return rc;
+        }
+        state_ = OUTER_LOOP;
         break;
       }
-      // 重置左 tuple 和右孩子的状态，进行下一轮循环
-      joined_tuple_.set_left(nullptr);
-      joined_tuple_.set_right(nullptr);
-      right_oper->close();
-      right_oper->open(trx_);
-      continue;
-    } else if (rc != RC::SUCCESS) {
-      LOG_ERROR("failed to get next tuple from right operator: rc=%s", strrc(rc));
-      return rc;
-    }
-    
-    joined_tuple_.set_right(right_oper->current_tuple());
 
-    if (joined_tuple_.left() == nullptr) {
-      // 外层循环步进，获取左孩子的下一个 tuple
-      rc = left_oper->next();
-      if (rc == RC::RECORD_EOF) {
-        // 左孩子没有更多数据，直接返回
+      case OUTER_LOOP: {
+        // 外层循环步进，获取左算子的下一个 tuple
+        rc = left_oper->next();
+        if (rc == RC::RECORD_EOF) {
+          // 外层循环结束，算子执行完成
+          joined_tuple_.set_left(nullptr);
+          left_oper->close();
+          state_ = FINISHED;
+          break;
+        } else if (rc != RC::SUCCESS) {
+          LOG_ERROR("failed to get next tuple from left operator: rc=%s", strrc(rc));
+          return rc;
+        }
+
+        // 获取左算子的 tuple
+        Tuple *left_tuple = left_oper->current_tuple();
+        joined_tuple_.set_left(left_tuple);
+        joined_father_tuple_.set_right(left_tuple);
+
+        // 进入内层循环
+        state_ = INNER_LOOP_START;
         break;
-      } else if (rc != RC::SUCCESS) {
-        LOG_ERROR("failed to get next tuple from left operator: rc=%s", strrc(rc));
-        return rc;
       }
-      joined_tuple_.set_left(left_oper->current_tuple());
+
+      case INNER_LOOP_START: {
+        // 进入内层循环，初始化右算子
+        right_oper->set_father_tuple(&joined_father_tuple_);
+        rc = right_oper->open(trx_);
+        if (rc != RC::SUCCESS) {
+          LOG_ERROR("failed to open right operator: rc=%s", strrc(rc));
+          return rc;
+        }
+        state_ = INNER_LOOP;
+        break;
+      }
+
+      case INNER_LOOP: {
+        // 内层循环步进，获取右孩子的下一个 tuple
+        rc = right_oper->next();
+        if (rc == RC::RECORD_EOF) {
+          // 内层循环结束，重置右算子的状态，进行下一轮循环
+          joined_tuple_.set_right(nullptr);
+          right_oper->close();
+          state_ = OUTER_LOOP;
+          break;
+        } else if (rc != RC::SUCCESS) {
+          LOG_ERROR("failed to get next tuple from right operator: rc=%s", strrc(rc));
+          return rc;
+        }
+
+        joined_tuple_.set_right(right_oper->current_tuple());
+
+        // 检查是否满足 join 条件
+        if (condition_) {
+          JoinedTuple joined_full_tuple;
+          joined_full_tuple.set_left(const_cast<Tuple *>(father_tuple_));
+          joined_full_tuple.set_right(&joined_tuple_);
+
+          Value value;
+          rc = condition_->get_value(joined_full_tuple, value);
+          if (rc != RC::SUCCESS) {
+            LOG_ERROR("failed to get value from join condition: rc=%s", strrc(rc));
+            return rc;
+          }
+
+          if (!value.get_boolean()) {
+            break;
+          }
+        }
+
+        return RC::SUCCESS;
+      }
     }
-
-    // 检查是否满足 join 条件
-    if (condition_) {
-      Value value;
-      rc = condition_->get_value(joined_tuple_, value);
-      if (rc != RC::SUCCESS) {
-        LOG_ERROR("failed to get value from join condition: rc=%s", strrc(rc));
-        return rc;
-      }
-
-      if (!value.get_boolean()) {
-        continue;
-      }
-    }
-
-    return RC::SUCCESS;
   }
 
-  finished_ = true;
   return RC::RECORD_EOF;
 }
 
 // 节点执行完成，清理左右子算子
 RC JoinPhysicalOperator::close()
 {
-  joined_tuple_.set_left(nullptr);
-  joined_tuple_.set_right(nullptr);
-  finished_ = true;
+  switch (state_) {
+    case INNER_LOOP:
+      joined_tuple_.set_right(nullptr);
+      children_[1]->close();
+      // fall through
 
-  children_[0]->close();
-  children_[1]->close();
+    case INNER_LOOP_START:
+      // fall through
+
+    case OUTER_LOOP:
+      joined_tuple_.set_left(nullptr);
+      children_[0]->close();
+      // fall through
+
+    case OUTER_LOOP_START:
+      // fall through
+
+    case FINISHED:
+      joined_father_tuple_.set_left(nullptr);
+      break;
+  }
+  
+  state_ = FINISHED;
   trx_ = nullptr;
 
   return RC::SUCCESS;

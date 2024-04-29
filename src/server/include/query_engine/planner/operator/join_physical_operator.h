@@ -26,8 +26,17 @@ public:
   }
 
 private:
+  enum State {
+    OUTER_LOOP_START,
+    OUTER_LOOP,
+    INNER_LOOP_START,
+    INNER_LOOP,
+    FINISHED,
+  };
+
   std::unique_ptr<Expression> condition_;
   Trx *trx_ = nullptr;
   JoinedTuple joined_tuple_;  //! 当前关联的左右两个tuple
-  bool finished_ = true;
+  JoinedTuple joined_father_tuple_; //! 右节点的 father_tuple
+  State state_ = FINISHED;
 };
