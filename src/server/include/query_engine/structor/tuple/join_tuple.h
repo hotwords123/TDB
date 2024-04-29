@@ -29,30 +29,45 @@ public:
 
   void get_record(std::vector<Record *> &records) const override
   {
-    left_->get_record(records);
-    right_->get_record(records);
+    if (left_ != nullptr) {
+      left_->get_record(records);
+    }
+    if (right_ != nullptr) {
+      right_->get_record(records);
+    }
   }
 
   void set_record(std::vector<Record *> &records) override
   {
-    left_->set_record(records);
-    right_->set_record(records);
+    if (left_ != nullptr) {
+      left_->set_record(records);
+    }
+    if (right_ != nullptr) {
+      right_->set_record(records);
+    }
   }
 
   int cell_num() const override
   {
-    return left_->cell_num() + right_->cell_num();
+    int left_cell_num = left_ != nullptr ? left_->cell_num() : 0;
+    int right_cell_num = right_ != nullptr ? right_->cell_num() : 0;
+    return left_cell_num + right_cell_num;
   }
 
   RC cell_at(int index, Value &value) const override
   {
-    const int left_cell_num = left_->cell_num();
-    if (index > 0 && index < left_cell_num) {
-      return left_->cell_at(index, value);
+    int left_cell_num = 0;
+    if (left_ != nullptr) {
+      left_cell_num = left_->cell_num();
+      if (index >= 0 && index < left_cell_num) {
+        return left_->cell_at(index, value);
+      }
     }
 
-    if (index >= left_cell_num && index < left_cell_num + right_->cell_num()) {
-      return right_->cell_at(index - left_cell_num, value);
+    if (right_ != nullptr) {
+      if (index >= left_cell_num && index < left_cell_num + right_->cell_num()) {
+        return right_->cell_at(index - left_cell_num, value);
+      }
     }
 
     return RC::NOTFOUND;
@@ -60,12 +75,17 @@ public:
 
   RC find_cell(const TupleCellSpec &spec, Value &value) const override
   {
-    RC rc = left_->find_cell(spec, value);
-    if (rc == RC::SUCCESS || rc != RC::NOTFOUND) {
-      return rc;
+    RC rc = RC::NOTFOUND;
+    if (left_ != nullptr) {
+      rc = left_->find_cell(spec, value);
+      if (rc == RC::SUCCESS || rc != RC::NOTFOUND) {
+        return rc;
+      }
     }
-
-    return right_->find_cell(spec, value);
+    if (right_ != nullptr) {
+      rc = right_->find_cell(spec, value);
+    }
+    return rc;
   }
 
 private:
