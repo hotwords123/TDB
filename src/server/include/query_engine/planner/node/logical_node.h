@@ -38,6 +38,9 @@ public:
     return expressions_;
   }
 
+  using Visitor = std::function<bool(const LogicalNode *)>;
+  bool visit(const Visitor &visitor) const;
+
 protected:
   std::vector<std::unique_ptr<LogicalNode>> children_;  ///< 子算子
   ///< 表达式，比如select中的列，where中的谓词等等，都可以使用表达式来表示

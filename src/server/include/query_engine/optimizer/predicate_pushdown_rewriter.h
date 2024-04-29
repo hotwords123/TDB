@@ -17,6 +17,5 @@ public:
   RC rewrite(std::unique_ptr<LogicalNode> &oper, bool &change_made) override;
 
 private:
-  RC get_exprs_can_pushdown(
-      std::unique_ptr<Expression> &expr, std::vector<std::unique_ptr<Expression>> &pushdown_exprs);
+  RC pushdown_expr(std::unique_ptr<Expression> &expr, LogicalNode *, bool &change_made);
 };
