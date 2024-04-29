@@ -1,5 +1,6 @@
 #include "include/query_engine/planner/operator/table_scan_physical_operator.h"
 #include "include/storage_engine/recorder/table.h"
+#include "include/query_engine/structor/tuple/join_tuple.h"
 
 using namespace std;
 
@@ -69,10 +70,14 @@ void TableScanPhysicalOperator::set_predicates(vector<unique_ptr<Expression>> &&
 
 RC TableScanPhysicalOperator::filter(RowTuple &tuple, bool &result)
 {
+  JoinedTuple joined_tuple;
+  joined_tuple.set_left(const_cast<Tuple *>(father_tuple_));
+  joined_tuple.set_right(&tuple);
+
   RC rc = RC::SUCCESS;
   Value value;
   for (unique_ptr<Expression> &expr : predicates_) {
-    rc = expr->get_value(tuple, value);
+    rc = expr->get_value(joined_tuple, value);
     if (rc != RC::SUCCESS) {
       return rc;
     }
