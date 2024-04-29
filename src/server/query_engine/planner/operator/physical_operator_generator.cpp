@@ -215,6 +215,7 @@ RC PhysicalOperatorGenerator::create_plan(
       lbound.null ? nullptr : &lbound.value, lbound.inclusive,
       rbound.null ? nullptr : &rbound.value, rbound.inclusive
     );
+    index_scan_oper->set_table_alias(table_get_oper.table_alias());
     index_scan_oper->isdelete_ = is_delete;
     index_scan_oper->set_predicates(std::move(predicates));
     oper = unique_ptr<PhysicalOperator>(index_scan_oper);
