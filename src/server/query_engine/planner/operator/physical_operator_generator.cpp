@@ -94,6 +94,7 @@ RC PhysicalOperatorGenerator::create_plan(
     TableGetLogicalNode &table_get_oper, unique_ptr<PhysicalOperator> &oper, bool is_delete)
 {
   Table *table = table_get_oper.table();
+  string table_alias = table_get_oper.table_alias();
   vector<unique_ptr<Expression>> &predicates = table_get_oper.predicates();
 
   // TODO [Lab2] 生成IndexScanOperator的准备工作,主要包含:
@@ -133,37 +134,56 @@ RC PhysicalOperatorGenerator::create_plan(
         default: continue;
       }
 
+      FieldExpr *field_expr = nullptr;
+      Expression *value_expr = nullptr;
+
+      auto check_condition = [&](Expression *lhs, Expression *rhs, bool swapped) {
+        if (lhs->type() != ExprType::FIELD) {
+          return false;
+        }
+
+        field_expr = static_cast<FieldExpr *>(lhs);
+        value_expr = rhs;
+        // 检查 field 是否相同
+        if (field_expr->field().table_alias() != table_alias ||
+            field_expr->field_name() != first_field_name) {
+          return false;
+        }
+        // 检查 value_expr 是否可以直接求值（不依赖于当前 table）
+        auto is_field_from_table = [&](const Expression *expr) {
+          if (expr->type() == ExprType::FIELD) {
+            auto field_expr = static_cast<const FieldExpr *>(expr);
+            return field_expr->field().table_alias() == table_alias;
+          }
+          return false;
+        };
+        if (value_expr->visit(is_field_from_table)) {
+          return false;
+        }
+
+        if (swapped) {
+          comp_op = -comp_op;
+        }
+        return true;
+      };
+
+      // 找到 field = const 或 const = field 的模式
       auto left = compare_expr->left().get();
       auto right = compare_expr->right().get();
-      FieldExpr *field_expr = nullptr;
-      Expression *other_expr = nullptr;
-      // 找到 field = const 或 const = field 的模式
-      if (left->type() == ExprType::FIELD) {
-        field_expr = static_cast<FieldExpr *>(left);
-        other_expr = right;
-      } else if (right->type() == ExprType::FIELD) {
-        field_expr = static_cast<FieldExpr *>(right);
-        other_expr = left;
-        comp_op = -comp_op;
-      } else {
+      if (!check_condition(left, right, false) &&
+          !check_condition(right, left, true)) {
         continue;
       }
-      // 检查 field 是否相同
-      if (field_expr->field().table_alias() != table_get_oper.table_alias() ||
-        field_expr->field_name() != first_field_name) {
-        continue;
-      }
-      // TODO: 检查 other_expr 是否可以直接求值（不依赖于当前 table）
       LOG_INFO("found predicate match for index %s: comp_op=%d, expr=%s",
-        index->index_meta().name(), comp_op, other_expr->to_string().c_str());
+        index->index_meta().name(), comp_op, value_expr->to_string().c_str());
 
       // 更新边界
       if (comp_op >= 0) {
-        left_expr.reset(other_expr->copy());
+        left_expr.reset(value_expr->copy());
         left_inclusive = comp_op != 2;
       }
       if (comp_op <= 0) {
-        right_expr.reset(other_expr->copy());
+        right_expr.reset(value_expr->copy());
         right_inclusive = comp_op != -2;
       }
 
@@ -186,7 +206,7 @@ RC PhysicalOperatorGenerator::create_plan(
   }
 
   if (scan_index == nullptr) {
-    auto table_scan_oper = new TableScanPhysicalOperator(table, table_get_oper.table_alias(), table_get_oper.readonly());
+    auto table_scan_oper = new TableScanPhysicalOperator(table, table_alias, table_get_oper.readonly());
     table_scan_oper->isdelete_ = is_delete;
     table_scan_oper->set_predicates(std::move(predicates));
     oper = unique_ptr<PhysicalOperator>(table_scan_oper);
@@ -199,7 +219,7 @@ RC PhysicalOperatorGenerator::create_plan(
     //              new IndexScanPhysicalOperator(table, index, readonly, &value, true, &value, true);
     // oper = unique_ptr<PhysicalOperator>(operator);
     auto index_scan_oper = make_unique<IndexScanPhysicalOperator>(table, scan_index, table_get_oper.readonly());
-    index_scan_oper->set_table_alias(table_get_oper.table_alias());
+    index_scan_oper->set_table_alias(table_alias);
     index_scan_oper->isdelete_ = is_delete;
     index_scan_oper->set_predicates(std::move(predicates));
 
