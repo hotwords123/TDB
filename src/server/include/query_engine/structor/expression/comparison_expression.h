@@ -49,6 +49,12 @@ public:
     return res;
   }
 
+  bool visit(const Visitor &visitor) const override {
+    return visitor(this) ||
+      (left_ != nullptr && left_->visit(visitor)) ||
+      (right_ != nullptr && right_->visit(visitor));
+  }
+
 private:
   CompOp comp_;
   std::unique_ptr<Expression> left_ = nullptr;

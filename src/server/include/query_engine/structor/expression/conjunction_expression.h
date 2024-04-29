@@ -34,6 +34,18 @@ public:
     return res;
   }
 
+  bool visit(const Visitor &visitor) const override {
+    if (visitor(this)) {
+      return true;
+    }
+    for (const auto &child : children_) {
+      if (child->visit(visitor)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
 private:
   ConjunctionType conjunction_type_ = ConjunctionType::AND;
   std::vector<std::unique_ptr<Expression>> children_;

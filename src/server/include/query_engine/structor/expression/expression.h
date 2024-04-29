@@ -113,6 +113,12 @@ public:
     return nullptr;
   }
 
+  using Visitor = std::function<bool(const Expression *)>;
+
+  virtual bool visit(const Visitor &visitor) const {
+    return visitor(this);
+  }
+
 protected:
   ExprType type_ = ExprType::NONE;
 

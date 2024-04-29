@@ -43,6 +43,10 @@ public:
     return res;
   }
 
+  bool visit(const Visitor &visitor) const override {
+    return visitor(this) || (expr_ != nullptr && expr_->visit(visitor));
+  }
+
 private:
   AggrType aggr_type_ = AggrType::AGGR_UNDEFINED;
   std::unique_ptr<Expression> expr_ = nullptr;
