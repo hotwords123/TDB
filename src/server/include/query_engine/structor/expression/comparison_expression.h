@@ -33,6 +33,8 @@ public:
    */
   RC try_get_value(Value &value) const override;
 
+  std::string _to_string() const override;
+
   /**
    * compare the two tuple cells
    * @param value the result of comparison

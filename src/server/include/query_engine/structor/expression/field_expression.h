@@ -43,6 +43,8 @@ public:
 
   RC get_value(const Tuple &tuple, Value &value) const override;
 
+  std::string _to_string() const override;
+
   void getFields(std::vector<Field *> &query_fields) const override;
 
   FieldExpr* copy() const override {

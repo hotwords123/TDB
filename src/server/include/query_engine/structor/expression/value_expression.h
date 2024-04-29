@@ -18,6 +18,10 @@ public:
   RC get_value(const Tuple &tuple, Value &value) const override;
   RC try_get_value(Value &value) const override { value = value_; return RC::SUCCESS; }
 
+  std::string _to_string() const override {
+    return value_.to_string();
+  }
+
   AttrType value_type() const override { return value_.attr_type(); }
 
   void get_value(Value &value) const { value = value_; }

@@ -35,3 +35,15 @@ RC ConjunctionExpr::set_trx(Trx *trx) const {
   }
   return RC::SUCCESS;
 }
+
+std::string ConjunctionExpr::_to_string() const {
+  std::string res = "(";
+  for (size_t i = 0; i < children_.size(); i++) {
+    if (i > 0) {
+      res += (conjunction_type_ == ConjunctionType::AND ? " AND " : " OR ");
+    }
+    res += children_[i]->_to_string();
+  }
+  res += ")";
+  return res;
+}

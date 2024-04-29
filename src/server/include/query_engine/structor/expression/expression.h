@@ -98,14 +98,8 @@ public:
     alias_ = std::move(alias);
   }
 
-  virtual std::string to_string() const {
-    std::string res = name_.empty() ? "?" : name_;
-    if (!alias_.empty()) {
-      res += " AS ";
-      res += alias_;
-    }
-    return res;
-  }
+  virtual std::string to_string() const;
+  virtual std::string _to_string() const;
 
   virtual void getFields(std::vector<Field *> &query_fields) const {}
 

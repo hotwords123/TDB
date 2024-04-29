@@ -17,6 +17,8 @@ public:
 
   RC get_value(const Tuple &tuple, Value &value) const override;
 
+  std::string _to_string() const override;
+
   ConjunctionType conjunction_type() const { return conjunction_type_; }
 
   std::vector<std::unique_ptr<Expression>> &children() { return children_; }

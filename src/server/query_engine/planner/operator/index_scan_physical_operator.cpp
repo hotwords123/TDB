@@ -139,7 +139,23 @@ Tuple* IndexScanPhysicalOperator::current_tuple(){
 
 std::string IndexScanPhysicalOperator::param() const
 {
-  return std::string(index_->index_meta().name()) + " ON " + table_->name();
+  std::string res = std::string(index_->index_meta().name()) + " ON " + table_->name();
+  if (table_alias_ != table_->name()) {
+    res += " AS " + table_alias_;
+  }
+  if (left_expr_ != nullptr) {
+    res += " LEFT " + left_expr_->to_string();
+    res += left_inclusive_ ? " INCLUSIVE" : " EXCLUSIVE";
+  }
+  if (right_expr_ != nullptr) {
+    res += " RIGHT " + right_expr_->to_string();
+    res += right_inclusive_ ? " INCLUSIVE" : " EXCLUSIVE";
+  }
+  for (size_t i = 0; i < predicates_.size(); i++) {
+    res += i == 0 ? " WHERE " : " AND ";
+    res += predicates_[i]->to_string();
+  }
+  return res;
 }
 
 RC IndexScanPhysicalOperator::filter(RowTuple &tuple, bool &result)

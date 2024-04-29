@@ -19,6 +19,8 @@ public:
 
   RC try_get_value(Value &value) const override { return RC::SUCCESS; }
 
+  std::string _to_string() const override;
+
   const RelAttrSqlNode rel_attr_sql_node() const { return rel_attr_sql_node_; }
 
   RelAttrExpr* copy() const override {

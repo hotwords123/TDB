@@ -60,7 +60,15 @@ Tuple *TableScanPhysicalOperator::current_tuple()
 
 string TableScanPhysicalOperator::param() const
 {
-  return table_->name();
+  std::string res = table_->name();
+  if (table_alias_ != table_->name()) {
+    res += " AS " + table_alias_;
+  }
+  for (size_t i = 0; i < predicates_.size(); i++) {
+    res += i == 0 ? " WHERE " : " AND ";
+    res += predicates_[i]->to_string();
+  }
+  return res;
 }
 
 void TableScanPhysicalOperator::set_predicates(vector<unique_ptr<Expression>> &&exprs)
