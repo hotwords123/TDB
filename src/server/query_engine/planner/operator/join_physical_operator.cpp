@@ -101,29 +101,47 @@ RC JoinPhysicalOperator::next()
         joined_tuple_.set_right(right_oper->current_tuple());
 
         // 检查是否满足 join 条件
-        if (condition_) {
-          JoinedTuple joined_full_tuple;
-          joined_full_tuple.set_left(const_cast<Tuple *>(father_tuple_));
-          joined_full_tuple.set_right(&joined_tuple_);
-
-          Value value;
-          rc = condition_->get_value(joined_full_tuple, value);
-          if (rc != RC::SUCCESS) {
-            LOG_ERROR("failed to get value from join condition: rc=%s", strrc(rc));
-            return rc;
-          }
-
-          if (!value.get_boolean()) {
-            break;
-          }
+        bool result;
+        rc = filter(joined_tuple_, result);
+        if (rc != RC::SUCCESS) {
+          LOG_ERROR("failed to filter joined tuple: rc=%s", strrc(rc));
+          return rc;
+        }
+        if (result) {
+          return RC::SUCCESS;
         }
 
-        return RC::SUCCESS;
+        break;
       }
     }
   }
 
   return RC::RECORD_EOF;
+}
+
+RC JoinPhysicalOperator::filter(JoinedTuple &tuple, bool &result)
+{
+  JoinedTuple full_tuple;
+  full_tuple.set_left(const_cast<Tuple *>(father_tuple_));
+  full_tuple.set_right(&tuple);
+
+  RC rc = RC::SUCCESS;
+  Value value;
+  for (auto &expr : conditions_) {
+    rc = expr->get_value(full_tuple, value);
+    if (rc != RC::SUCCESS) {
+      LOG_ERROR("failed to get value from join condition: rc=%s", strrc(rc));
+      return rc;
+    }
+
+    if (!value.get_boolean()) {
+      result = false;
+      return rc;
+    }
+  }
+
+  result = true;
+  return rc;
 }
 
 // 节点执行完成，清理左右子算子

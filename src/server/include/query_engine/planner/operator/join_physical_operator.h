@@ -20,9 +20,9 @@ public:
   RC close() override;
   Tuple *current_tuple() override;
 
-  void set_condition(std::unique_ptr<Expression> condition)
+  void set_conditions(std::vector<std::unique_ptr<Expression>> &&conditions)
   {
-    condition_ = std::move(condition);
+    conditions_ = std::move(conditions);
   }
 
 private:
@@ -34,9 +34,11 @@ private:
     FINISHED,
   };
 
-  std::unique_ptr<Expression> condition_;
+  std::vector<std::unique_ptr<Expression>> conditions_;
   Trx *trx_ = nullptr;
   JoinedTuple joined_tuple_;  //! 当前关联的左右两个tuple
   JoinedTuple joined_father_tuple_; //! 右节点的 father_tuple
   State state_ = FINISHED;
+
+  RC filter(JoinedTuple &tuple, bool &result);
 };

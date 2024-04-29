@@ -133,16 +133,20 @@ RC LogicalPlanGenerator::plan_node(
       auto join_node = make_unique<JoinLogicalNode>();
       join_node->add_child(std::move(root));
       join_node->add_child(std::move(table_get_node));
+      root = std::move(join_node);
       
       // 每个 JOIN 子句对应 join_filter_stmts 中的一个 FilterStmt
       // 所有 JOIN 子句对应的 table 位于 tables 末尾，按顺序排列
       int join_index = (int)join_filter_stmts.size() - (int)(tables.size() - i);
       if (join_index >= 0) {
         FilterStmt *filter_stmt = join_filter_stmts[join_index];
-        join_node->set_condition(_transfer_filter_stmt_to_expr(filter_stmt));
-      }
-      
-      root = std::move(join_node);
+        unique_ptr<LogicalNode> join_predicate_node;
+        plan_node(filter_stmt, join_predicate_node);
+        if (join_predicate_node) {
+          join_predicate_node->add_child(std::move(root));
+          root = std::move(join_predicate_node);
+        }
+      }      
     } else {
       // 如果只有一个 TableGetLogicalNode，则直接将其设置为 root 节点
       root = std::move(table_get_node);

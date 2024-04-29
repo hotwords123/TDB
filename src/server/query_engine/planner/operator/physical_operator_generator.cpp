@@ -446,7 +446,7 @@ RC PhysicalOperatorGenerator::create_plan(
   }
 
   auto join_physical_oper = make_unique<JoinPhysicalOperator>();
-  join_physical_oper->set_condition(std::move(join_oper.condition()));
+  join_physical_oper->set_conditions(std::move(join_oper.conditions()));
 
   for (auto &child_oper : child_opers) {
     unique_ptr<PhysicalOperator> child_physical_oper;
