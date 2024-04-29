@@ -50,15 +50,12 @@ RC PredicatePhysicalOperator::next()
       break;
     }
 
-    if (father_tuple_ != nullptr) {
-      auto *join_tuple = new JoinedTuple;
-      join_tuple->set_left(tuple);
-      join_tuple->set_right(const_cast<Tuple *>(father_tuple_));
-      tuple = join_tuple;
-    }
+    JoinedTuple joined_tuple;
+    joined_tuple.set_left(tuple);
+    joined_tuple.set_right(const_cast<Tuple *>(father_tuple_));
 
     Value value;
-    rc = expression_->get_value(*tuple, value);
+    rc = expression_->get_value(joined_tuple, value);
     if (rc != RC::SUCCESS) {
       return rc;
     }
