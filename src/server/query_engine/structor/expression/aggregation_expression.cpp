@@ -26,3 +26,28 @@ RC AggrExpr::getAggrExprs(Expression *expr, std::vector<AggrExpr *> &aggr_exprs)
   }
   return RC::SUCCESS;
 }
+
+static std::string aggr_type_to_string(AggrType type) {
+  switch (type) {
+    case AggrType::AGGR_COUNT:
+      return "COUNT";
+    case AggrType::AGGR_SUM:
+      return "SUM";
+    case AggrType::AGGR_AVG:
+      return "AVG";
+    case AggrType::AGGR_MAX:
+      return "MAX";
+    case AggrType::AGGR_MIN:
+      return "MIN";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+std::string AggrExpr::_to_string() const {
+  std::string res = aggr_type_to_string(aggr_type_);
+  res += "(";
+  res += expr_->_to_string();
+  res += ")";
+  return res;
+}

@@ -30,6 +30,8 @@ public:
   RC get_value(const Tuple &tuple, Value &value) const override;
   RC try_get_value(Value &value) const override { return RC::SUCCESS; }
 
+  std::string _to_string() const override;
+
   const AggrType &_aggr_type_() const { return aggr_type_; }
   const std::unique_ptr<Expression> &_expr_() const { return expr_; }
 

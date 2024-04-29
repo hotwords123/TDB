@@ -98,6 +98,9 @@ public:
     alias_ = std::move(alias);
   }
 
+  virtual std::string to_string() const;
+  virtual std::string _to_string() const;
+
   virtual void getFields(std::vector<Field *> &query_fields) const {}
 
   virtual Expression* copy() const {

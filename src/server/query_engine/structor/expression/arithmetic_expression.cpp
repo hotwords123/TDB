@@ -133,3 +133,31 @@ void ArithmeticExpr::getFields(std::vector<Field *> &query_fields) const {
     right_->getFields(query_fields);
   }
 }
+
+std::string ArithmeticExpr::_to_string() const {
+  std::string res = left_->_to_string();
+  switch (arithmetic_type_) {
+    case Type::ADD:
+      res += " + ";
+      break;
+    case Type::SUB:
+      res += " - ";
+      break;
+    case Type::MUL:
+      res += " * ";
+      break;
+    case Type::DIV:
+      res += " / ";
+      break;
+    case Type::NEGATIVE:
+      res = "-" + res;
+      break;
+    default:
+      res += " UNKNOWN ";
+      break;
+  }
+  if (arithmetic_type_ != Type::NEGATIVE) {
+    res = "(" + res + right_->_to_string() + ")";
+  }
+  return res;
+}

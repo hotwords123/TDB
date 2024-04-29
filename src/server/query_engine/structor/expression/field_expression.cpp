@@ -27,3 +27,7 @@ void FieldExpr::getFields(std::vector<Field *> &query_fields) const {
     query_fields.emplace_back(new Field(field_));
   }
 }
+
+std::string FieldExpr::_to_string() const {
+  return field_.table_alias() + std::string(".") + field_.field_name();
+}

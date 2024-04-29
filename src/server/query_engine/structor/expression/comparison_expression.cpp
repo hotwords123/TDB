@@ -164,3 +164,58 @@ RC ComparisonExpr::get_value(const Tuple &tuple, Value &value) const
   }
   return rc;
 }
+
+std::string ComparisonExpr::_to_string() const
+{
+  std::string str = left_->_to_string();
+  switch (comp_) {
+    case EQUAL_TO:
+      str += " = ";
+      break;
+    case LESS_EQUAL:
+      str += " <= ";
+      break;
+    case NOT_EQUAL:
+      str += " != ";
+      break;
+    case LESS_THAN:
+      str += " < ";
+      break;
+    case GREAT_EQUAL:
+      str += " >= ";
+      break;
+    case GREAT_THAN:
+      str += " > ";
+      break;
+    case LIKE_OP:
+      str += " LIKE ";
+      break;
+    case NOT_LIKE_OP:
+      str += " NOT LIKE ";
+      break;
+    case IS_NULL:
+      str += " IS NULL";
+      break;
+    case IS_NOT_NULL:
+      str += " IS NOT NULL";
+      break;
+    case EXISTS:
+      str = "EXISTS " + str;
+      break;
+    case NOT_EXISTS:
+      str = "NOT EXISTS " + str;
+      break;
+    case IN:
+      str += " IN ";
+      break;
+    case NOT_IN:
+      str += " NOT IN ";
+      break;
+    default:
+      break;
+  }
+  if (right_ != nullptr) {
+    str = "(" + str + right_->_to_string() + ")";
+  }
+  return str;
+}
