@@ -6,6 +6,14 @@
 // TODO [Lab2]
 // IndexScanOperator的实现逻辑,通过索引直接获取对应的Page来减少磁盘的扫描
 
+static RC get_expr_value(const Expression *expr, const Tuple *tuple, Value &value) {
+  if (tuple != nullptr) {
+    return expr->get_value(*tuple, value);
+  } else {
+    return expr->try_get_value(value);
+  }
+}
+
 RC IndexScanPhysicalOperator::open(Trx *trx)
 {
   if(table_ == nullptr || index_ == nullptr)
@@ -13,12 +21,38 @@ RC IndexScanPhysicalOperator::open(Trx *trx)
     return RC::INTERNAL;
   }
 
-  const char *left_key = left_null_ ? nullptr : left_key_buf_.data();
-  const char *right_key = right_null_ ? nullptr : right_key_buf_.data();
-  IndexScanner *index_scanner = index_->create_scanner(left_key,
+  // 获取左右边界的值
+  Value left_value, right_value;
+  if (left_expr_) {
+    RC rc = get_expr_value(left_expr_.get(), father_tuple_, left_value);
+    if (rc != RC::SUCCESS) {
+      LOG_ERROR("IndexScanPhysicalOperator: failed to get value of scan key: rc=%s", strrc(rc));
+      return rc;
+    }
+    left_key_buf_.assign(left_value.data(), left_value.length());
+  }
+  if (right_expr_) {
+    RC rc = get_expr_value(right_expr_.get(), father_tuple_, right_value);
+    if (rc != RC::SUCCESS) {
+      LOG_ERROR("IndexScanPhysicalOperator: failed to get value of scan key: rc=%s", strrc(rc));
+      return rc;
+    }
+    right_key_buf_.assign(right_value.data(), right_value.length());
+  }
+
+  // 检查左右边界是否有效
+  if (left_expr_ && right_expr_) {
+    int ret = left_value.compare(right_value);
+    if (ret > 0 || (ret == 0 && !(left_inclusive_ && right_inclusive_))) {
+      LOG_INFO("IndexScanPhysicalOperator: scan range is empty, skipping");
+      return RC::SUCCESS;
+    }
+  }
+
+  IndexScanner *index_scanner = index_->create_scanner(left_expr_ ? left_key_buf_.data() : nullptr,
                                                        left_key_buf_.length(),
                                                        left_inclusive_,
-                                                       right_key,
+                                                       right_expr_ ? right_key_buf_.data() : nullptr,
                                                        right_key_buf_.length(),
                                                        right_inclusive_);
   if(index_scanner == nullptr)
@@ -47,9 +81,12 @@ RC IndexScanPhysicalOperator::open(Trx *trx)
 
 RC IndexScanPhysicalOperator::next()
 {
+  if (index_scanner_ == nullptr) {
+    return RC::RECORD_EOF;
+  }
+
   RID rid;
   RecordFileHandler *record_handler = table_->record_handler();
-  record_page_handler_.cleanup();
 
   // TODO [Lab2] 通过IndexScanner循环获取下一个RID，然后通过RecordHandler获取对应的Record
   // 在现有的查询实现中，会在调用next()方法后通过current_tuple()获取当前的Tuple,
@@ -66,6 +103,7 @@ RC IndexScanPhysicalOperator::next()
     }
 
     // 使用 RecordFileHandler 获取对应的 Record
+    record_page_handler_.cleanup();
     rc = record_handler->get_record(record_page_handler_, &rid, readonly_, &current_record_);
     if (rc != RC::SUCCESS) {
       return rc;
@@ -84,10 +122,13 @@ RC IndexScanPhysicalOperator::next()
 
 RC IndexScanPhysicalOperator::close()
 {
+  record_page_handler_.cleanup();
   if (index_scanner_ != nullptr) {
     index_scanner_->destroy();
     index_scanner_ = nullptr;
   }
+  left_key_buf_.clear();
+  right_key_buf_.clear();
   return RC::SUCCESS;
 }
 

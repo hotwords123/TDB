@@ -14,41 +14,24 @@ class IndexScanner;
 class IndexScanPhysicalOperator : public PhysicalOperator
 {
 public:
-  IndexScanPhysicalOperator(Table *table, Index *index, bool readonly,
-                           const Value *left_value, bool left_inclusive,
-                           const Value *right_value, bool right_inclusive) :
-                                             table_(table), index_(index),
-                                             readonly_(readonly),
-                                             left_inclusive_(left_inclusive),
-                                             right_inclusive_(right_inclusive)
-  {
-    if (left_value != nullptr) {
-      left_key_buf_.assign(left_value->data(), left_value->length());
-      left_null_ = false;
-    }
-    if (right_value != nullptr) {
-      right_key_buf_.assign(right_value->data(), right_value->length());
-      right_null_ = false;
-    }
-  }
-
-  IndexScanPhysicalOperator(Table *table, Index *index, bool readonly,
-                            const char *left_key, int left_len, bool left_inclusive,
-                            const char *right_key, int right_len, bool right_inclusive) :
-                              table_(table), index_(index), readonly_(readonly),
-                              left_inclusive_(left_inclusive), right_inclusive_(right_inclusive)
-  {
-    if (left_key != nullptr) {
-      left_key_buf_.assign(left_key, left_len);
-      left_null_ = false;
-    }
-    if (right_key != nullptr) {
-      right_key_buf_.assign(right_key, right_len);
-      right_null_ = false;
-    }
-  }
+  IndexScanPhysicalOperator(Table *table, Index *index, bool readonly) :
+    table_(table), index_(index), readonly_(readonly) {}
 
   ~IndexScanPhysicalOperator() override = default;
+
+  void set_left_expr(std::unique_ptr<Expression> expr) {
+    left_expr_ = std::move(expr);
+  }
+  void set_left_inclusive(bool inclusive) {
+    left_inclusive_ = inclusive;
+  }
+
+  void set_right_expr(std::unique_ptr<Expression> expr) {
+    right_expr_ = std::move(expr);
+  }
+  void set_right_inclusive(bool inclusive) {
+    right_inclusive_ = inclusive;
+  }
 
   PhysicalOperatorType type() const override
   {
@@ -88,7 +71,7 @@ public:
   std::string right_key_buf_;
   bool left_inclusive_ = false;
   bool right_inclusive_ = false;
-  bool left_null_ = true;
-  bool right_null_ = true;
+  std::unique_ptr<Expression> left_expr_;
+  std::unique_ptr<Expression> right_expr_;
   std::vector<std::unique_ptr<Expression>> predicates_;
 };

@@ -26,9 +26,7 @@
 #include "include/query_engine/planner/node/join_logical_node.h"
 #include "include/query_engine/planner/operator/join_physical_operator.h"
 #include "include/query_engine/planner/operator/group_by_physical_operator.h"
-#include "include/query_engine/planner/operator/empty_physical_operator.h"
 #include "common/log/log.h"
-#include "common/lang/range.h"
 #include "include/storage_engine/recorder/table.h"
 #include "include/storage_engine/index/index.h"
 #include "include/query_engine/structor/expression/field_expression.h"
@@ -110,15 +108,12 @@ RC PhysicalOperatorGenerator::create_plan(
   // 通过FieldExpression找到对应的Index, 通过ValueExpression找到对应的Value
   Index *scan_index = nullptr;
 
-  auto compare_value = [](const Value &lhs, const Value &rhs) {
-    return lhs.compare(rhs);
-  };
-  using ValueBound = common::RangeBound<Value, decltype(compare_value)>;
-  ValueBound lbound, rbound;
+  unique_ptr<Expression> left_expr;
+  unique_ptr<Expression> right_expr;
+  bool left_inclusive = false;
+  bool right_inclusive = false;
 
   for (auto index : table->indexes()) {
-    lbound.clear();
-    rbound.clear();
     // 第一个字段的名字，多重索引由于按字典序排列也能使用
     std::string first_field_name(index->index_meta().field(0));
 
@@ -154,45 +149,38 @@ RC PhysicalOperatorGenerator::create_plan(
         continue;
       }
       // 检查 field 是否相同
-      if (field_expr->field_name() != first_field_name) {
+      if (field_expr->field().table_alias() != table_get_oper.table_alias() ||
+        field_expr->field_name() != first_field_name) {
         continue;
       }
-      // 尝试直接获得表达式的常量值
-      Value value;
-      if (other_expr->try_get_value(value) != RC::SUCCESS) {
-        continue;
-      }
-      LOG_INFO("found predicate match for index %s: comp_op=%d, value=%s",
-        index->index_meta().name(), comp_op, value.to_string().c_str());
+      // TODO: 检查 other_expr 是否可以直接求值（不依赖于当前 table）
+      LOG_INFO("found predicate match for index %s: comp_op=%d, expr=%s",
+        index->index_meta().name(), comp_op, other_expr->to_string().c_str());
 
       // 更新边界
       if (comp_op >= 0) {
-        ValueBound bound(comp_op != 2, value);
-        if (bound.compare(lbound, ValueBound::LEFT) < 0) {
-          lbound = bound;
-        }
+        left_expr.reset(other_expr->copy());
+        left_inclusive = comp_op != 2;
       }
       if (comp_op <= 0) {
-        ValueBound bound(comp_op != -2, value);
-        if (bound.compare(rbound, ValueBound::RIGHT) < 0) {
-          rbound = bound;
-        }
+        right_expr.reset(other_expr->copy());
+        right_inclusive = comp_op != -2;
+      }
+
+      // 从 predicates 中移除这个条件
+      predicate.reset();
+
+      if (left_expr && right_expr) {
+        break;
       }
     }
 
-    if (!lbound.null || !rbound.null) {
+    if (left_expr || right_expr) {
       scan_index = index;
-      // 检查范围是否合法（左边界小于等于右边界）
-      if (!lbound.null && !rbound.null) {
-        int ret = compare_value(lbound.value, rbound.value);
-        if (ret > 0 || (ret == 0 && !(lbound.inclusive && rbound.inclusive))) {
-          LOG_WARN("invalid range: lbound=%s, rbound=%s. using empty operator",
-            lbound.to_string().c_str(), rbound.to_string().c_str());
-          // 无效范围，视为空操作
-          oper = make_unique<EmptyPhysicalOperator>();
-          return RC::SUCCESS;
-        }
-      }
+      auto it = remove_if(predicates.begin(), predicates.end(), [](const unique_ptr<Expression> &expr) {
+        return !expr;
+      });
+      predicates.erase(it, predicates.end());
       break;
     }
   }
@@ -210,17 +198,19 @@ RC PhysicalOperatorGenerator::create_plan(
     // IndexScanPhysicalOperator *operator =
     //              new IndexScanPhysicalOperator(table, index, readonly, &value, true, &value, true);
     // oper = unique_ptr<PhysicalOperator>(operator);
-    auto *index_scan_oper = new IndexScanPhysicalOperator(
-      table, scan_index, table_get_oper.readonly(),
-      lbound.null ? nullptr : &lbound.value, lbound.inclusive,
-      rbound.null ? nullptr : &rbound.value, rbound.inclusive
-    );
+    auto index_scan_oper = make_unique<IndexScanPhysicalOperator>(table, scan_index, table_get_oper.readonly());
     index_scan_oper->set_table_alias(table_get_oper.table_alias());
     index_scan_oper->isdelete_ = is_delete;
     index_scan_oper->set_predicates(std::move(predicates));
-    oper = unique_ptr<PhysicalOperator>(index_scan_oper);
-    LOG_INFO("use index scan: index=%s, lbound=%s, rbound=%s",
-      scan_index->index_meta().name(), lbound.to_string().c_str(), rbound.to_string().c_str());
+
+    index_scan_oper->set_left_expr(std::move(left_expr));
+    index_scan_oper->set_left_inclusive(left_inclusive);
+    
+    index_scan_oper->set_right_expr(std::move(right_expr));
+    index_scan_oper->set_right_inclusive(right_inclusive);
+
+    oper = std::move(index_scan_oper);
+    LOG_INFO("use index scan: index=%s", scan_index->index_meta().name());
   }
 
   return RC::SUCCESS;
