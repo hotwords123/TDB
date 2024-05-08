@@ -109,10 +109,9 @@ RC PhysicalOperatorGenerator::create_plan(
   // 通过FieldExpression找到对应的Index, 通过ValueExpression找到对应的Value
   Index *scan_index = nullptr;
 
-  unique_ptr<Expression> left_expr;
-  unique_ptr<Expression> right_expr;
-  bool left_inclusive = false;
-  bool right_inclusive = false;
+  using ExprBound = IndexScanPhysicalOperator::ExprBound;
+  vector<ExprBound> left_bounds;
+  vector<ExprBound> right_bounds;
 
   for (auto index : table->indexes()) {
     // 第一个字段的名字，多重索引由于按字典序排列也能使用
@@ -179,23 +178,17 @@ RC PhysicalOperatorGenerator::create_plan(
 
       // 更新边界
       if (comp_op >= 0) {
-        left_expr.reset(value_expr->copy());
-        left_inclusive = comp_op != 2;
+        left_bounds.emplace_back(value_expr->copy(), comp_op != 2);
       }
       if (comp_op <= 0) {
-        right_expr.reset(value_expr->copy());
-        right_inclusive = comp_op != -2;
+        right_bounds.emplace_back(value_expr->copy(), comp_op != -2);
       }
 
       // 从 predicates 中移除这个条件
       predicate.reset();
-
-      if (left_expr && right_expr) {
-        break;
-      }
     }
 
-    if (left_expr || right_expr) {
+    if (!left_bounds.empty() || !right_bounds.empty()) {
       scan_index = index;
       auto it = remove_if(predicates.begin(), predicates.end(), [](const unique_ptr<Expression> &expr) {
         return !expr;
@@ -223,11 +216,8 @@ RC PhysicalOperatorGenerator::create_plan(
     index_scan_oper->isdelete_ = is_delete;
     index_scan_oper->set_predicates(std::move(predicates));
 
-    index_scan_oper->set_left_expr(std::move(left_expr));
-    index_scan_oper->set_left_inclusive(left_inclusive);
-    
-    index_scan_oper->set_right_expr(std::move(right_expr));
-    index_scan_oper->set_right_inclusive(right_inclusive);
+    index_scan_oper->set_left_bounds(std::move(left_bounds));
+    index_scan_oper->set_right_bounds(std::move(right_bounds));
 
     oper = std::move(index_scan_oper);
     LOG_INFO("use index scan: index=%s", scan_index->index_meta().name());

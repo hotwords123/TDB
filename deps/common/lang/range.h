@@ -62,6 +62,25 @@ struct RangeBound {
       return '(' + value.to_string() + ')';
     }
   }
+
+  /**
+   * 检查范围的左右边界是否有效。
+   * 返回值为正数表示范围是一个区间，0 表示范围是一个点，负数表示范围无效。
+   */
+  static int check_range(const RangeBound &left, const RangeBound &right) {
+    if (left.null || right.null) {
+      return 1;
+    }
+
+    int ret = Compare{}(left.value, right.value);
+    if (ret < 0) {
+      return 1;
+    } else if (ret > 0) {
+      return -1;
+    } else {
+      return left.inclusive && right.inclusive ? 0 : -1;
+    }
+  }
 };
 
 }  // namespace common

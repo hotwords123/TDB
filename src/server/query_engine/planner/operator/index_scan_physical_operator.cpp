@@ -3,6 +3,8 @@
 
 #include "include/storage_engine/index/index.h"
 
+#include "common/lang/range.h"
+
 // TODO [Lab2]
 // IndexScanOperator的实现逻辑,通过索引直接获取对应的Page来减少磁盘的扫描
 
@@ -14,47 +16,79 @@ static RC get_expr_value(const Expression *expr, const Tuple *tuple, Value &valu
   }
 }
 
+struct value_comp {
+  int operator()(const Value &lhs, const Value &rhs) const {
+    return lhs.compare(rhs);
+  }
+};
+
+using ValueBound = common::RangeBound<Value, value_comp>;
+using ExprBound = IndexScanPhysicalOperator::ExprBound;
+
+static RC combine_bounds(const vector<ExprBound> &bounds, ValueBound &result, ValueBound::Side side,
+                         const Tuple *father_tuple) {
+  result.clear();
+  for (const auto &[expr, inclusive] : bounds) {
+    ValueBound bound;
+    RC rc = get_expr_value(expr.get(), father_tuple, bound.value);
+    if (rc != RC::SUCCESS) {
+      LOG_ERROR("IndexScanPhysicalOperator: failed to get value of scan key: rc=%s, expr=%s",
+                strrc(rc), expr->to_string().c_str());
+      return rc;
+    }
+
+    bound.inclusive = inclusive;
+    bound.null = false;
+    if (bound.compare(result, side) < 0) {
+      result = std::move(bound);
+    }
+  }
+  return RC::SUCCESS;
+}
+
 RC IndexScanPhysicalOperator::open(Trx *trx)
 {
+  using Side = ValueBound::Side;
+
   if(table_ == nullptr || index_ == nullptr)
   {
     return RC::INTERNAL;
   }
 
   // 获取左右边界的值
-  Value left_value, right_value;
-  if (left_expr_) {
-    RC rc = get_expr_value(left_expr_.get(), father_tuple_, left_value);
-    if (rc != RC::SUCCESS) {
-      LOG_ERROR("IndexScanPhysicalOperator: failed to get value of scan key: rc=%s", strrc(rc));
-      return rc;
-    }
-    left_key_buf_.assign(left_value.data(), left_value.length());
+  ValueBound left_bound;
+  ValueBound right_bound;
+
+  if (RC rc = combine_bounds(left_bounds_, left_bound, Side::LEFT, father_tuple_); rc != RC::SUCCESS) {
+    return rc;
   }
-  if (right_expr_) {
-    RC rc = get_expr_value(right_expr_.get(), father_tuple_, right_value);
-    if (rc != RC::SUCCESS) {
-      LOG_ERROR("IndexScanPhysicalOperator: failed to get value of scan key: rc=%s", strrc(rc));
-      return rc;
-    }
-    right_key_buf_.assign(right_value.data(), right_value.length());
+  if (RC rc = combine_bounds(right_bounds_, right_bound, Side::RIGHT, father_tuple_); rc != RC::SUCCESS) {
+    return rc;
+  }
+
+  left_key_buf_.clear();
+  right_key_buf_.clear();
+
+  // 将左右边界的值表示拷贝到对应的 buffer 中
+  if (!left_bound.null) {
+    left_key_buf_.assign(left_bound.value.data(), left_bound.value.length());
+  }
+  if (!right_bound.null) {
+    right_key_buf_.assign(right_bound.value.data(), right_bound.value.length());
   }
 
   // 检查左右边界是否有效
-  if (left_expr_ && right_expr_) {
-    int ret = left_value.compare(right_value);
-    if (ret > 0 || (ret == 0 && !(left_inclusive_ && right_inclusive_))) {
-      LOG_INFO("IndexScanPhysicalOperator: scan range is empty, skipping");
-      return RC::SUCCESS;
-    }
+  if (ValueBound::check_range(left_bound, right_bound) < 0) {
+    LOG_TRACE("IndexScanPhysicalOperator: scan range is empty, skipping");
+    return RC::SUCCESS;
   }
 
-  IndexScanner *index_scanner = index_->create_scanner(left_expr_ ? left_key_buf_.data() : nullptr,
+  IndexScanner *index_scanner = index_->create_scanner(left_bound.null ? nullptr : left_key_buf_.data(),
                                                        left_key_buf_.length(),
-                                                       left_inclusive_,
-                                                       right_expr_ ? right_key_buf_.data() : nullptr,
+                                                       left_bound.inclusive,
+                                                       right_bound.null ? nullptr : right_key_buf_.data(),
                                                        right_key_buf_.length(),
-                                                       right_inclusive_);
+                                                       right_bound.inclusive);
   if(index_scanner == nullptr)
   {
     return RC::INTERNAL;
@@ -143,13 +177,13 @@ std::string IndexScanPhysicalOperator::param() const
   if (table_alias_ != table_->name()) {
     res += " AS " + table_alias_;
   }
-  if (left_expr_ != nullptr) {
-    res += " LEFT " + left_expr_->to_string();
-    res += left_inclusive_ ? " INCLUSIVE" : " EXCLUSIVE";
+  for (const auto &[expr, inclusive] : left_bounds_) {
+    res += " LEFT " + expr->to_string();
+    res += inclusive ? " INCLUSIVE" : " EXCLUSIVE";
   }
-  if (right_expr_ != nullptr) {
-    res += " RIGHT " + right_expr_->to_string();
-    res += right_inclusive_ ? " INCLUSIVE" : " EXCLUSIVE";
+  for (const auto &[expr, inclusive] : right_bounds_) {
+    res += " RIGHT " + expr->to_string();
+    res += inclusive ? " INCLUSIVE" : " EXCLUSIVE";
   }
   for (size_t i = 0; i < predicates_.size(); i++) {
     res += i == 0 ? " WHERE " : " AND ";

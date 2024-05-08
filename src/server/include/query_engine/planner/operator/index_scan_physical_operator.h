@@ -19,20 +19,6 @@ public:
 
   ~IndexScanPhysicalOperator() override = default;
 
-  void set_left_expr(std::unique_ptr<Expression> expr) {
-    left_expr_ = std::move(expr);
-  }
-  void set_left_inclusive(bool inclusive) {
-    left_inclusive_ = inclusive;
-  }
-
-  void set_right_expr(std::unique_ptr<Expression> expr) {
-    right_expr_ = std::move(expr);
-  }
-  void set_right_inclusive(bool inclusive) {
-    right_inclusive_ = inclusive;
-  }
-
   PhysicalOperatorType type() const override
   {
     return PhysicalOperatorType::INDEX_SCAN;
@@ -40,6 +26,16 @@ public:
 
   void set_table_alias(const std::string &alias) {
     table_alias_ = alias;
+  }
+
+  using ExprBound = std::pair<std::unique_ptr<Expression>, bool>;
+
+  void set_left_bounds(std::vector<ExprBound> &&bounds) {
+    left_bounds_ = std::move(bounds);
+  }
+
+  void set_right_bounds(std::vector<ExprBound> &&bounds) {
+    right_bounds_ = std::move(bounds);
   }
 
   RC open(Trx *trx) override;
@@ -69,9 +65,7 @@ public:
 
   std::string left_key_buf_;
   std::string right_key_buf_;
-  bool left_inclusive_ = false;
-  bool right_inclusive_ = false;
-  std::unique_ptr<Expression> left_expr_;
-  std::unique_ptr<Expression> right_expr_;
+  std::vector<ExprBound> left_bounds_;
+  std::vector<ExprBound> right_bounds_;
   std::vector<std::unique_ptr<Expression>> predicates_;
 };
