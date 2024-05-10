@@ -42,7 +42,6 @@ RC IndexScanPhysicalOperator::next()
 {
   RID rid;
   RecordFileHandler *record_handler = table_->record_handler();
-  record_page_handler_.cleanup();
 
   // TODO [Lab2] 通过IndexScanner循环获取下一个RID，然后通过RecordHandler获取对应的Record
   // 在现有的查询实现中，会在调用next()方法后通过current_tuple()获取当前的Tuple,
@@ -59,6 +58,7 @@ RC IndexScanPhysicalOperator::next()
     }
 
     // 使用 RecordFileHandler 获取对应的 Record
+    record_page_handler_.cleanup();
     rc = record_handler->get_record(record_page_handler_, &rid, readonly_, &current_record_);
     if (rc != RC::SUCCESS) {
       return rc;
