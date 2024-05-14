@@ -45,7 +45,7 @@ RC JoinPhysicalOperator::next()
   RC rc = RC::SUCCESS;
 
   // 实现 Nested Loop Join
-  while (state_ != FINISHED) {
+  while (true) {
     switch (state_) {
       case OUTER_LOOP_START: {
         // 进入外层循环，初始化左算子
@@ -55,7 +55,7 @@ RC JoinPhysicalOperator::next()
           return rc;
         }
         state_ = OUTER_LOOP;
-        break;
+        [[fallthrough]];
       }
 
       case OUTER_LOOP: {
@@ -66,7 +66,7 @@ RC JoinPhysicalOperator::next()
           joined_tuple_.set_left(nullptr);
           left_oper->close();
           state_ = FINISHED;
-          break;
+          return RC::RECORD_EOF;
         } else if (rc != RC::SUCCESS) {
           LOG_ERROR("failed to get next tuple from left operator: rc=%s", strrc(rc));
           return rc;
@@ -79,7 +79,7 @@ RC JoinPhysicalOperator::next()
 
         // 进入内层循环
         state_ = INNER_LOOP_START;
-        break;
+        [[fallthrough]];
       }
 
       case INNER_LOOP_START: {
@@ -91,7 +91,7 @@ RC JoinPhysicalOperator::next()
           return rc;
         }
         state_ = INNER_LOOP;
-        break;
+        [[fallthrough]];
       }
 
       case INNER_LOOP: {
@@ -102,7 +102,7 @@ RC JoinPhysicalOperator::next()
           joined_tuple_.set_right(nullptr);
           right_oper->close();
           state_ = OUTER_LOOP;
-          break;
+          continue;
         } else if (rc != RC::SUCCESS) {
           LOG_ERROR("failed to get next tuple from right operator: rc=%s", strrc(rc));
           return rc;
@@ -123,10 +123,11 @@ RC JoinPhysicalOperator::next()
 
         break;
       }
+
+      case FINISHED:
+        return RC::RECORD_EOF;
     }
   }
-
-  return RC::RECORD_EOF;
 }
 
 RC JoinPhysicalOperator::filter(JoinedTuple &tuple, bool &result)
@@ -161,18 +162,18 @@ RC JoinPhysicalOperator::close()
     case INNER_LOOP:
       joined_tuple_.set_right(nullptr);
       children_[1]->close();
-      // fall through
+      [[fallthrough]];
 
     case INNER_LOOP_START:
-      // fall through
+      [[fallthrough]];
 
     case OUTER_LOOP:
       joined_tuple_.set_left(nullptr);
       children_[0]->close();
-      // fall through
+      [[fallthrough]];
 
     case OUTER_LOOP_START:
-      // fall through
+      [[fallthrough]];
 
     case FINISHED:
       joined_father_tuple_.set_left(nullptr);
