@@ -68,6 +68,9 @@ class MvccTrx : public Trx
    */
   void trx_fields(Table *table, Field &begin_xid_field, Field &end_xid_field) const;
 
+  bool xid_visible(int xid) const;
+  bool record_visible(int begin_xid, int end_xid) const;
+
  private:
   static const int32_t MAX_TRX_ID = std::numeric_limits<int32_t>::max();
 

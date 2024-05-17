@@ -109,8 +109,19 @@ RC MvccTrx::insert_record(Table *table, Record &record)
   RC rc = RC::SUCCESS;
   // TODO [Lab4] 需要同学们补充代码实现记录的插入，相关提示见文档
 
-  pair<OperationSet::iterator, bool> ret = operations_.insert(Operation(Operation::Type::INSERT, table, record.rid()));
-  if (!ret.second) {
+  Field begin_xid_field, end_xid_field;
+  trx_fields(table, begin_xid_field, end_xid_field);
+
+  begin_xid_field.set_int(record, -trx_id_);
+  end_xid_field.set_int(record, trx_kit_.max_trx_id());
+
+  rc = table->insert_record(record);
+  if (rc != RC::SUCCESS) {
+    return rc;
+  }
+  
+  auto [it, ret] = operations_.emplace(Operation::Type::INSERT, table, record.rid());
+  if (!ret) {
     rc = RC::INTERNAL;
     LOG_WARN("failed to insert operation(insertion) into operation set: duplicate");
   }
@@ -122,8 +133,76 @@ RC MvccTrx::delete_record(Table *table, Record &record)
   RC rc = RC::SUCCESS;
   // TODO [Lab4] 需要同学们补充代码实现逻辑上的删除，相关提示见文档
 
-  operations_.insert(Operation(Operation::Type::DELETE, table, record.rid()));
+  Field begin_xid_field, end_xid_field;
+  trx_fields(table, begin_xid_field, end_xid_field);
+
+  int begin_xid = begin_xid_field.get_int(record);
+  int end_xid = end_xid_field.get_int(record);
+
+  if (!record_visible(begin_xid, end_xid)) {
+    // 不能删除对当前事务不可见的记录
+    LOG_ERROR("try to delete an invisible record. begin xid=%d, end xid=%d, trx id=%d", begin_xid, end_xid, trx_id_);
+    return RC::INTERNAL;
+  }
+
+  if (end_xid != trx_kit_.max_trx_id()) {
+    // 不能删除已经被删除的记录
+    LOG_ERROR("try to delete a deleted record. begin xid=%d, end xid=%d, trx id=%d", begin_xid, end_xid, trx_id_);
+    return RC::INTERNAL;
+  }
+
+  if (begin_xid == -trx_id_) {
+    // 待删除的记录是当前事务插入的，直接删除
+    rc = table->delete_record(record);
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
+    // 撤销插入操作
+    int ret = operations_.erase(Operation(Operation::Type::INSERT, table, record.rid()));
+    if (ret == 0) {
+      LOG_WARN("failed to erase operation(insertion) from operation set: not found");
+    }
+  } else {
+    // 否则，修改记录的删除事务 ID
+    rc = table->visit_record(record.rid(), false/*readonly*/, [&](Record &record) {
+      end_xid_field.set_int(record, -trx_id_);
+    });
+    if (rc != RC::SUCCESS) {
+      LOG_ERROR("failed to update record end xid while deleting. rc=%s", strrc(rc));
+      return rc;
+    }
+    // 记录删除操作
+    auto [it, ret] = operations_.emplace(Operation::Type::DELETE, table, record.rid());
+    if (!ret) {
+      rc = RC::INTERNAL;
+      LOG_WARN("failed to insert operation(deletion) into operation set: duplicate");
+    }
+  }
+
   return rc;
+}
+
+/**
+ * @brief 判断事务 ID 是否对当前事务可见
+ * @param xid 事务 ID
+ * @return bool 可见性
+ */
+bool MvccTrx::xid_visible(int xid) const
+{
+  // 可见条件为：在当前事务中修改，或在当前事务创建前已经发生
+  return xid == -trx_id_ || (xid > 0 && xid < trx_id_);
+}
+
+/**
+ * @brief 判断记录是否对当前事务可见
+ * @param begin_xid 记录的创建事务 ID
+ * @param end_xid   记录的删除事务 ID
+ * @return bool     可见性
+ */
+bool MvccTrx::record_visible(int begin_xid, int end_xid) const
+{
+  // 可见条件为：创建操作对当前事务可见，且删除操作对当前事务不可见
+  return xid_visible(begin_xid) && !xid_visible(end_xid);
 }
 
 /**
@@ -137,10 +216,25 @@ RC MvccTrx::delete_record(Table *table, Record &record)
  */
 RC MvccTrx::visit_record(Table *table, Record &record, bool readonly)
 {
-  RC rc = RC::SUCCESS;
-  // TODO [Lab4] 需要同学们补充代码实现记录是否可见的判断，相关提示见文档
+  Field begin_xid_field, end_xid_field;
+  trx_fields(table, begin_xid_field, end_xid_field);
 
-  return rc;
+  int begin_xid = begin_xid_field.get_int(record);
+  int end_xid = end_xid_field.get_int(record);
+
+  if (!record_visible(begin_xid, end_xid)) {
+    // 不能访问对当前事务不可见的记录
+    return RC::RECORD_INVISIBLE;
+  }
+
+  if (!readonly && end_xid != trx_kit_.max_trx_id()) {
+    // 不能修改已经被删除的记录
+    LOG_WARN("try to modify a deleted record %s in trx %d: xid=%d:%d",
+        record.rid().to_string().c_str(), trx_id_, begin_xid, end_xid);
+    return RC::LOCKED_CONCURRENCY_CONFLICT;
+  }
+
+  return RC::SUCCESS;
 }
 
 RC MvccTrx::start_if_need()
