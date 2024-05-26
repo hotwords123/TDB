@@ -148,7 +148,7 @@ RC MvccTrx::delete_record(Table *table, Record &record)
   if (end_xid != trx_kit_.max_trx_id()) {
     // 不能删除已经被删除的记录
     LOG_ERROR("try to delete a deleted record. begin xid=%d, end xid=%d, trx id=%d", begin_xid, end_xid, trx_id_);
-    return RC::INTERNAL;
+    return RC::LOCKED_CONCURRENCY_CONFLICT;
   }
 
   if (begin_xid == -trx_id_) {
@@ -225,13 +225,6 @@ RC MvccTrx::visit_record(Table *table, Record &record, bool readonly)
   if (!record_visible(begin_xid, end_xid)) {
     // 不能访问对当前事务不可见的记录
     return RC::RECORD_INVISIBLE;
-  }
-
-  if (!readonly && end_xid != trx_kit_.max_trx_id()) {
-    // 不能修改已经被删除的记录
-    LOG_WARN("try to modify a deleted record %s in trx %d: xid=%d:%d",
-        record.rid().to_string().c_str(), trx_id_, begin_xid, end_xid);
-    return RC::LOCKED_CONCURRENCY_CONFLICT;
   }
 
   return RC::SUCCESS;
