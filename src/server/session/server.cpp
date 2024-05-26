@@ -65,6 +65,7 @@ void Server::recv(int fd, short ev, void *arg)
     return;
   }
   bool need_disconnect = query_engine_.process_session_request(event);
+  delete event;
   if(need_disconnect){
     close_connection(comm);
     return;
