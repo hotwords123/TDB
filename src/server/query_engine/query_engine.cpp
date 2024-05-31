@@ -28,6 +28,7 @@ bool QueryEngine::process_session_request(SessionRequest *request) {
   rc = planQuery(&query_info);
   if(RC_FAIL(rc) && rc != RC::UNIMPLENMENT){
     request->get_communicator()->write_state(request->sql_result(), need_disconnect);
+    request->get_communicator()->send_message_delimiter();
     request->get_communicator()->flush();
     return need_disconnect;
   }else{
