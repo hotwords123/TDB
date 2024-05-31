@@ -77,6 +77,11 @@ class MvccTrx : public Trx
   bool record_visible(int begin_xid, int end_xid) const;
 
   /**
+   * @brief 不执行校验，直接删除表中的记录，基于 MVCC 协议
+   */
+  RC delete_record_internal(Table *table, const Record &record);
+
+  /**
    * @brief 使用指定的版本号来提交事务
    * @param commit_xid
    * @return

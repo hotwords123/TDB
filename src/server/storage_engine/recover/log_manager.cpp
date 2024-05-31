@@ -122,8 +122,63 @@ RC LogManager::recover(Db *db)
 {
   TrxManager *trx_manager = GCTX.trx_manager_;
   ASSERT(trx_manager != nullptr, "cannot do recover that trx_manager is null");
+  ASSERT(log_file_ != nullptr, "cannot do recover that log_file_ is null");
 
-  // TODO [Lab5] 需要同学们补充代码，相关提示见文档
+  LogEntryIterator log_entry_iter;
+  RC rc = log_entry_iter.init(*log_file_);
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("failed to init log entry iterator. rc=%s", strrc(rc));
+    return rc;
+  }
+
+  while ((rc = log_entry_iter.next()) != RC::RECORD_EOF) {
+    if (rc != RC::SUCCESS) {
+      LOG_ERROR("failed to read next log entry. rc=%s", strrc(rc));
+      return rc;
+    }
+
+    const LogEntry &log_entry = log_entry_iter.log_entry();
+    int trx_id = log_entry.trx_id();
+    LogEntryType log_type = log_entry.log_type();
+
+    LOG_TRACE("recover log_entry=%s", log_entry.to_string().c_str());
+
+    if (log_type == LogEntryType::MTR_BEGIN) {
+      Trx *trx = trx_manager->create_trx(trx_id);
+      if (trx == nullptr) {
+        LOG_ERROR("failed to create trx. log_entry=%s", log_entry.to_string().c_str());
+        return RC::INTERNAL;
+      }
+    } else {
+      Trx *trx = trx_manager->find_trx(trx_id);
+      if (trx == nullptr) {
+        LOG_ERROR("failed to find trx. log_entry=%s", log_entry.to_string().c_str());
+        return RC::INTERNAL;
+      }
+
+      rc = trx->redo(db, log_entry);
+      if (rc != RC::SUCCESS) {
+        LOG_ERROR("failed to redo log entry. rc=%s, log_entry=%s", strrc(rc), log_entry.to_string().c_str());
+        return rc;
+      }
+
+      if (log_type == LogEntryType::MTR_COMMIT || log_type == LogEntryType::MTR_ROLLBACK) {
+        trx_manager->destroy_trx(trx);
+      }
+    }
+  }
+
+  // 检查是否有未结束的事务，如果有则回滚
+  std::vector<Trx *> trxes;
+  trx_manager->all_trxes(trxes);
+  for (Trx *trx : trxes) {
+    RC rc = trx->rollback();
+    if (rc != RC::SUCCESS) {
+      LOG_ERROR("failed to rollback unfinished trx. trx_id=%d, rc=%s", trx->id(), strrc(rc));
+      return rc;
+    }
+    trx_manager->destroy_trx(trx);
+  }
 
   return RC::SUCCESS;
 }

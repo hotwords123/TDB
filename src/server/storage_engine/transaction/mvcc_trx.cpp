@@ -132,6 +132,13 @@ RC MvccTrx::insert_record(Table *table, Record &record)
     rc = RC::INTERNAL;
     LOG_WARN("failed to insert operation(insertion) into operation set: duplicate");
   }
+
+  if (!recovering_) {
+    log_manager_->append_record_log(
+      LogEntryType::INSERT, trx_id_, table->table_id(),
+      record.rid(), record.len(), 0, record.data()
+    );
+  }
   return rc;
 }
 
@@ -157,6 +164,29 @@ RC MvccTrx::delete_record(Table *table, Record &record)
     LOG_ERROR("try to delete a deleted record. begin xid=%d, end xid=%d, trx id=%d", begin_xid, end_xid, trx_id_);
     return RC::LOCKED_CONCURRENCY_CONFLICT;
   }
+
+  rc = delete_record_internal(table, record);
+  if (rc != RC::SUCCESS) {
+    return rc;
+  }
+
+  if (!recovering_) {
+    log_manager_->append_record_log(
+      LogEntryType::DELETE, trx_id_, table->table_id(),
+      record.rid(), record.len(), 0, record.data()
+    );
+  }
+  return rc;
+}
+
+RC MvccTrx::delete_record_internal(Table *table, const Record &record)
+{
+  RC rc = RC::SUCCESS;
+
+  Field begin_xid_field, end_xid_field;
+  trx_fields(table, begin_xid_field, end_xid_field);
+
+  int begin_xid = begin_xid_field.get_int(record);
 
   if (begin_xid == -trx_id_) {
     // 待删除的记录是当前事务插入的，直接删除
@@ -382,34 +412,52 @@ RC MvccTrx::redo(Db *db, const LogEntry &log_entry)
 
   switch (log_entry.log_type()) {
     case LogEntryType::INSERT: {
-      Table *table = nullptr;
       const RecordEntry &record_entry = log_entry.record_entry();
+      Table *table = db->find_table(record_entry.table_id_);
+      if (table == nullptr) {
+        return RC::SCHEMA_TABLE_NOT_EXIST;
+      }
 
-      // TODO [Lab5] 需要同学们补充代码，相关提示见文档
+      Record record;
+      record.set_rid(record_entry.rid_);
+      record.set_data(record_entry.data_, record_entry.data_len_);
+
+      RC rc = table->recover_insert_record(record);
+      if (rc != RC::SUCCESS) {
+        return rc;
+      }
 
       operations_.insert(Operation(Operation::Type::INSERT, table, record_entry.rid_));
-    } break;
+      break;
+    }
 
     case LogEntryType::DELETE: {
-      Table *table = nullptr;
       const RecordEntry &record_entry = log_entry.record_entry();
+      Table *table = db->find_table(record_entry.table_id_);
+      if (table == nullptr) {
+        return RC::SCHEMA_TABLE_NOT_EXIST;
+      }
 
-      // TODO [Lab5] 需要同学们补充代码，相关提示见文档
+      Record record;
+      record.set_rid(record_entry.rid_);
+      record.set_data(record_entry.data_, record_entry.data_len_);
 
-      operations_.insert(Operation(Operation::Type::DELETE, table, record_entry.rid_));
-    } break;
+      RC rc = delete_record_internal(table, record);
+      if (rc != RC::SUCCESS) {
+        return rc;
+      }
+      break;
+    }
 
     case LogEntryType::MTR_COMMIT: {
-
-      // TODO [Lab5] 需要同学们补充代码，相关提示见文档
-
-    } break;
+      commit_with_trx_id(log_entry.commit_entry().commit_xid_);
+      break;
+    }
 
     case LogEntryType::MTR_ROLLBACK: {
-
-      // TODO [Lab5] 需要同学们补充代码，相关提示见文档
-
-    } break;
+      rollback();
+      break;
+    }
 
     default: {
       ASSERT(false, "unsupported redo log. log entry=%s", log_entry.to_string().c_str());
