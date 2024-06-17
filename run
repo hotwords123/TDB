@@ -1,0 +1,31 @@
+#!/bin/bash
+cd build/
+
+case "$1" in
+    debug)
+        gdb --args ./bin/server -P cli
+        ;;
+    use)
+        target_db=tdb_"$2"
+        if [ ! -d "$target_db" ]; then
+            echo "Database tdb_$2 does not exist"
+            exit 1
+        fi
+        rm -f tdb
+        ln -s "$target_db" tdb
+        echo "Using database $target_db"
+        ls tdb/db/sys
+        ;;
+    server)
+        ./bin/server -t mvcc
+        ;;
+    client)
+        ./bin/client
+        ;;
+    "")
+        ./bin/server -P cli
+        ;;
+    *)
+        echo "Unrecognized command $1"
+        ;;
+esac
